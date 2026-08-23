@@ -333,6 +333,13 @@ async def search_willhaben(
 
     At least one of ``keyword`` or ``category`` must be given.
 
+    When you're after a specific kind of product, prefer scoping the search to
+    its category: find it with ``list_categories`` and pass it as ``category``.
+    A bare keyword search matches the whole ad text, so it also drags in loosely
+    related listings (accessories, bundles, spare parts, other product types) --
+    scoping to the category cuts that noise and lets you add the matching
+    attribute filters. Keep it keyword-only for broad or one-off queries.
+
     - ``category``: a willhaben category id (int) or its exact name. Use the
       ``list_categories`` tool to discover ids. Restricts the search to that
       category and all its subcategories.
@@ -430,7 +437,11 @@ async def search_willhaben(
 async def get_ad_detail(ad_id: Union[str, int]) -> dict:
     """Fetch the full detail of a single willhaben advert by its id, including
     the complete (untruncated) description, all images, itemised attributes and
-    precise location. Use this after search_willhaben to inspect a listing."""
+    precise location. Use it after a search to inspect a listing.
+
+    Search results only carry a truncated description, so come here whenever you
+    need the full text, the complete attributes, or every detail of one ad (and
+    ``get_ad_images`` when you need to see it)."""
     url = f"{DETAIL_URL}/{ad_id}"
     headers = {
         "Accept": "application/json",
@@ -471,12 +482,20 @@ async def _fetch_detail(ad_id: Union[str, int]) -> dict:
 
 @mcp.tool(structured_output=False)
 async def get_ad_images(ad_id: Union[str, int], max_images: int = 4) -> list:
-    """Fetch an ad's photos and return them as images the model can actually see.
+    """Fetch an ad's photos and return them as images you can actually look at.
 
     Downloads up to ``max_images`` photos from willhaben's CDN server-side and
     returns them as image content blocks (base64), so a vision-capable client
-    sees the real pictures instead of just URLs. Use it on an id from a search
-    when you want to look at a listing.
+    sees the real pictures instead of just URLs. Call it with an id from a search.
+
+    Reach for this whenever the pictures carry information you can't take on trust
+    from the text: the description is the seller's claim, the photos are the
+    evidence. Typical cases are judging the real condition (wear, scratches,
+    damage, completeness), reading details that only appear in an image (a
+    screenshot of specs or measurements, a label, a model or serial number, a
+    display), or confirming the item matches the description. As a rule of thumb,
+    if your answer or recommendation depends on what the thing actually looks
+    like, look at it.
     """
     max_images = max(1, min(int(max_images), 10))
     detail = await _fetch_detail(ad_id)
@@ -780,6 +799,13 @@ async def search_autos(
     """Search willhaben's Auto & Motor cars (Gebrauchtwagen).
 
     Everything is optional; combine what you need.
+
+    Prefer the structured filters over ``keyword`` when a filter exists for what
+    you want: they match exact fields, while ``keyword`` searches the free text
+    and pulls in ads that merely mention a term. Use ``keyword`` for things that
+    have no filter, such as a chassis-generation code (e.g. "E39", where make and
+    model only go down to "5er-Reihe") or a specific equipment phrase, ideally on
+    top of a structured make/model search rather than on its own.
 
     - ``make``: make id or name (see ``list_car_makes``).
     - ``model``: model id or name, e.g. "3er-Reihe" or "7er" (needs ``make``;

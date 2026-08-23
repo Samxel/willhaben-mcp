@@ -1,5 +1,7 @@
 from mcp.server import MCPServer
+from mcp.server.mcpserver import Image
 import httpx
+import asyncio
 import uuid
 import json
 import re
@@ -442,6 +444,67 @@ async def get_ad_detail(ad_id: Union[str, int]) -> dict:
     logger.debug("Response: %d", response.status_code)
     response.raise_for_status()
     return _summarize_ad_detail(response.json())
+
+
+_CONTENT_TYPE_FORMAT = {
+    "image/webp": "webp",
+    "image/jpeg": "jpeg",
+    "image/jpg": "jpeg",
+    "image/png": "png",
+    "image/gif": "gif",
+}
+
+
+async def _fetch_detail(ad_id: Union[str, int]) -> dict:
+    """GET the raw advert-detail JSON (shared by detail/image tools)."""
+    headers = {
+        "Accept": "application/json",
+        "x-wh-client": WH_CLIENT,
+        "x-wh-date": datetime.now(timezone.utc).isoformat(),
+        "x-wh-security-version": WH_SECURITY_VERSION,
+        "x-wh-application-token": WH_APPLICATION_TOKEN,
+    }
+    response = await client.get(f"{DETAIL_URL}/{ad_id}", headers=headers)
+    response.raise_for_status()
+    return response.json()
+
+
+@mcp.tool(structured_output=False)
+async def get_ad_images(ad_id: Union[str, int], max_images: int = 4) -> list:
+    """Fetch an ad's photos and return them as images the model can actually see.
+
+    Downloads up to ``max_images`` photos from willhaben's CDN server-side and
+    returns them as image content blocks (base64), so a vision-capable client
+    sees the real pictures instead of just URLs. Use it on an id from a search
+    when you want to look at a listing.
+    """
+    max_images = max(1, min(int(max_images), 10))
+    detail = await _fetch_detail(ad_id)
+    images = _widget(detail.get("widgets", []), "PICTURE_SLIDER").get("advertImageList", [])
+    urls = [img.get("referenceImageUrl") for img in images if img.get("referenceImageUrl")]
+    urls = urls[:max_images]
+    if not urls:
+        return [f"No images found for ad {ad_id}."]
+
+    img_headers = {"user-agent": "willhaben/613937 okhttp/5.4.0 Android/14"}
+
+    async def fetch(u: str):
+        try:
+            r = await client.get(u, headers=img_headers)
+            r.raise_for_status()
+            ctype = r.headers.get("content-type", "").split(";")[0].strip().lower()
+            fmt = _CONTENT_TYPE_FORMAT.get(ctype, "jpeg")
+            return Image(data=r.content, format=fmt)
+        except Exception as exc:  # a single broken image shouldn't fail the tool
+            logger.warning("image download failed (%s): %s", u, exc)
+            return None
+
+    fetched = await asyncio.gather(*(fetch(u) for u in urls))
+    pictures = [img for img in fetched if img is not None]
+
+    title = detail.get("description") or f"ad {ad_id}"
+    header = f'{len(pictures)} image(s) for "{title}" (ad {ad_id}):'
+    return [header, *pictures]
 
 
 @mcp.tool()

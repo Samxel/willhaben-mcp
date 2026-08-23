@@ -75,6 +75,12 @@ Everything about one ad: the full (untruncated) description, all images,
 itemised attributes, category path and precise location. Works for marketplace
 and car ads. Run it on an id you got from a search.
 
+**`get_ad_images(ad_id, max_images=4)`**
+
+Download an ad's photos server-side and return them as real image content
+(base64), so a vision-capable client sees the pictures instead of just URLs.
+Handy when you want to actually look at a listing.
+
 ## Setup
 
 ```bash

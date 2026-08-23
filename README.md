@@ -5,6 +5,17 @@ and pull the full details of ads. It covers the marketplace (Marktplatz) and
 the Auto & Motor cars vertical, wrapping willhaben's reverse-engineered
 mobile-app API and returning the important fields to the AI.
 
+## Highlights
+
+- **Visual Listing Analysis**  
+  Downloads and analyzes the actual ad photos, allowing vision-capable AI to inspect an item's **condition, wear, damage, completeness, and other visual details** instead of relying only on the seller's description.
+
+- **Full access to willhaben filters**  
+  Search with the **complete range of available filters** across Marketplace and Auto & Motor including categories, brands, condition, size, color, price, region, vehicle specs, equipment, and much more.
+
+- **From discovery to full inspection**  
+  Find relevant ads, then retrieve **complete listing details, full descriptions, attributes, precise locations, and all available photos** for a deeper analysis.
+
 ## Tools
 
 ### Marketplace

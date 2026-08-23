@@ -1,0 +1,185 @@
+{
+  "vertical": "immobilien",
+  "search_path_prefix": "atz/2",
+  "hosts": {
+    "navigation": "app-aggregator.willhaben.at",
+    "results": "ad-search.willhaben.at"
+  },
+  "categories": {
+    "132": "Haus mieten",
+    "131": "Wohnung mieten",
+    "16": "Gewerbeimmobilie mieten",
+    "12": "Ferienimmobilie kaufen",
+    "15": "Gewerbeimmobilie kaufen",
+    "32": "Ferienimmobilie mieten",
+    "102": "Haus kaufen",
+    "101": "Wohnung kaufen",
+    "42": "Neubauprojekte",
+    "14": "Grundstücke",
+    "90": "Alle Immobilien"
+  },
+  "selects": {
+    "NO_OF_ROOMS_BUCKET": {
+      "title": "Zimmeranzahl",
+      "options": {
+        "1X1": "1",
+        "2X2": "2",
+        "3X3": "3",
+        "4X4": "4",
+        "5X5": "5",
+        "6X9": "6-9",
+        "10X": "ab 10",
+        "0X0": "keine Angaben"
+      }
+    },
+    "FREE_AREA/FREE_AREA_TYPE": {
+      "title": "Freiflächen",
+      "options": {
+        "20": "Balkon",
+        "40": "Dachterrasse",
+        "60": "Garten",
+        "30": "Loggia",
+        "10": "Terrasse",
+        "50": "Wintergarten",
+        "70": "Gastgarten"
+      }
+    },
+    "ESTATE_PREFERENCE": {
+      "title": "Ausstattung",
+      "options": {
+        "24": "Abstellraum",
+        "25": "Barrierefrei",
+        "26": "Carport",
+        "27": "Einbauküche",
+        "4": "Fahrstuhl",
+        "23": "Garage",
+        "250": "Keller",
+        "15": "Parkplatz",
+        "28": "Teilmöbliert / Möbliert",
+        "29": "Verkabelung",
+        "30": "Klimaanlage",
+        "31": "Pool"
+      }
+    },
+    "AT_TYPE": {
+      "title": "Bauträger",
+      "options": {
+        "16": "nur Neubauprojekte"
+      }
+    },
+    "PROPERTY_TYPE": {
+      "title": "Objekttyp",
+      "options": {
+        "2": "Almhütte/Berghütte",
+        "9": "Bauernhaus",
+        "11": "Bungalow",
+        "15": "Doppelhaushälfte",
+        "1": "Einfamilienhaus",
+        "22": "Gartenhaus",
+        "17": "Genossenschaftshaus",
+        "19": "Landhaus",
+        "20": "Mehrfamilienhaus",
+        "4": "Reihenhaus",
+        "114": "Rohbau",
+        "25": "Schloss/Burg/Chalet",
+        "26": "Villa",
+        "18": "Sonstige",
+        "110": "Dachgeschoßwohnung",
+        "105": "Erdgeschoßwohnung",
+        "111": "Garconniere",
+        "113": "Genossenschaftswohnung",
+        "100": "Loft/Studio",
+        "101": "Maisonette",
+        "102": "Penthousewohnung",
+        "112": "Rohdachboden",
+        "3": "Wohnung",
+        "16": "Zimmer/WG",
+        "27": "Sonstige",
+        "120": "Ausstellungsfläche",
+        "5": "Büro/Ordination",
+        "23": "Gastronomie",
+        "10": "Geschäfts-/Ladenlokal",
+        "8": "Hotel/Pension",
+        "122": "Jagd-/Forstwirtschaft",
+        "7": "Lagerhalle",
+        "117": "Land-/Forstwirtschaft",
+        "123": "Teich-/Fischwirtschaft",
+        "121": "Werkstatt",
+        "115": "Zinshaus",
+        "13": "Ferienwohnung/Ferienhaus",
+        "21": "Baugrundstück",
+        "118": "Gewerbegrundstück",
+        "14": "Grundstück",
+        "119": "Industriegrundstück",
+        "116": "Kleingarten"
+      }
+    },
+    "AVAILABLETODAY": {
+      "title": "Verfügbarkeit",
+      "options": {
+        "1": "ab sofort"
+      }
+    },
+    "PROJECT/TYPE": {
+      "title": "Projekttyp",
+      "options": {
+        "2146911824": "Haus",
+        "2146911818": "Wohnung",
+        "2146911825": "Wohnung und Haus"
+      }
+    },
+    "PROJECT/STATUS": {
+      "title": "Projektstatus",
+      "options": {
+        "2146911821": "Bezugsfertig",
+        "2146911820": "In Bau/Planung",
+        "2146911819": "Vorankündigung"
+      }
+    },
+    "OWNAGETYPE": {
+      "title": "Besitzform",
+      "options": {
+        "1": "Kauf",
+        "2": "Miete",
+        "2146911838": "Kauf und Miete",
+        "3": "Pacht"
+      }
+    }
+  },
+  "ranges": {
+    "PRICE_FROM": {
+      "label": "Preis",
+      "from": "PRICE_FROM",
+      "to": "PRICE_TO",
+      "unit": "€"
+    },
+    "ESTATE_SIZE/LIVING_AREA_FROM": {
+      "label": "Wohnfläche",
+      "from": "ESTATE_SIZE/LIVING_AREA_FROM",
+      "to": "ESTATE_SIZE/LIVING_AREA_TO",
+      "unit": "m²"
+    },
+    "PRICE_SQM_FROM": {
+      "label": "Kaufpreis pro m²",
+      "from": "PRICE_SQM_FROM",
+      "to": "PRICE_SQM_TO",
+      "unit": "€"
+    },
+    "ESTATE_SIZE/USEABLE_AREA_FROM": {
+      "label": "Nutzfläche",
+      "from": "ESTATE_SIZE/USEABLE_AREA_FROM",
+      "to": "ESTATE_SIZE/USEABLE_AREA_TO",
+      "unit": "m²"
+    },
+    "PLOT/AREA_FROM": {
+      "label": "Grundfläche",
+      "from": "PLOT/AREA_FROM",
+      "to": "PLOT/AREA_TO",
+      "unit": "m²"
+    }
+  },
+  "toggles": {
+    "periode": "Nur Anzeigen der letzten 48h"
+  },
+  "notes": "Property type = category id in path atz/2/<id>. Filters differ per type; willhaben ignores inapplicable ones."
+}

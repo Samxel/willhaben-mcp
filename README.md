@@ -1,13 +1,14 @@
 <h1 align="center">willhaben-mcp</h1>
 
 An MCP server that lets an AI search [willhaben.at](https://www.willhaben.at)
-and pull the full details of ads. It covers the marketplace (Marktplatz) and
-the Auto & Motor cars vertical, wrapping willhaben's reverse-engineered
-mobile-app API and returning the important fields to the AI.
+and pull the full details of ads. It covers the marketplace (Marktplatz), the
+Auto & Motor cars vertical and Immobilien (real estate), wrapping willhaben's
+reverse-engineered mobile-app API and returning the important fields to the AI.
 
 <p align="center">
   <a href="https://www.willhaben.at/iad/kaufen-und-verkaufen/marktplatz"><img alt="Marktplatz listings" src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FSamxel%2Fwillhaben-mcp%2Fmain%2Fcoverage.json&query=%24.marktplatz&label=Marktplatz&color=green&suffix=%20listings&cacheSeconds=3600"></a>
   <a href="https://www.willhaben.at/iad/gebrauchtwagen/auto"><img alt="Auto & Motor listings" src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FSamxel%2Fwillhaben-mcp%2Fmain%2Fcoverage.json&query=%24.autos&label=Auto%20%26%20Motor&color=ff7300&suffix=%20listings&cacheSeconds=3600"></a>
+  <a href="https://www.willhaben.at/iad/immobilien"><img alt="Immobilien listings" src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FSamxel%2Fwillhaben-mcp%2Fmain%2Fcoverage.json&query=%24.immobilien&label=Immobilien&color=1e6fff&suffix=%20listings&cacheSeconds=3600"></a>
 </p>
 
 ## Highlights
@@ -83,6 +84,28 @@ List car make ids for `search_autos`. Optional `query` filters by name.
 
 List the models of a make (fetched live, since models are make-specific).
 
+### Immobilien
+
+**`search_immobilien(property_type, ...)`**
+
+Search real estate. Pick a `property_type` first (buy vs rent and the kind of
+property); everything else is optional.
+- `property_type`: id or name, e.g. "Wohnung mieten", "Haus kaufen",
+  "Grundstücke", "Gewerbeimmobilie mieten", or "Alle Immobilien" (default)
+- `object_type` (e.g. "Einfamilienhaus", "Dachgeschosswohnung"), `rooms`
+  ("1"-"5", "6-9", "10+")
+- `features` (Garage, Keller, Einbauküche, ...), `outdoor` (Balkon, Terrasse,
+  Garten, ...)
+- ranges: `price_from/to`, `area_from/to` (living m²), `plot_from/to` (plot m²)
+- region, last 48h, sorting, paging
+
+Filters that don't apply to the chosen type are ignored by willhaben. The type
+and filter data ships in `data/immobilien/filters.json`.
+
+**`list_immobilien_types()`**
+
+List the real-estate property types for `search_immobilien`.
+
 ### Shared
 
 **`get_ad_detail(ad_id)`**
@@ -124,8 +147,9 @@ Point your MCP client at that URL. Host, port and path live at the top of
   handled in `main.py`. If willhaben rotates the token, grab a fresh one from the
   app's request headers and replace `WH_APPLICATION_TOKEN`.
 - Generated data lives under `data/`, one folder per vertical:
-  `data/marktplatz/categories.json` (the ~3500-category tree) and
-  `data/auto-motor/filters.json` (car filters, options and makes). `main.py`
+  `data/marktplatz/categories.json` (the ~3500-category tree),
+  `data/auto-motor/filters.json` (car filters, options and makes) and
+  `data/immobilien/filters.json` (property types, filters and options). `main.py`
   loads them at startup. Re-crawl them if willhaben changes.
 - API details are documented in [`search_api.md`](search_api.md).
 - This uses willhaben's internal API, not an official one. Be nice to it.

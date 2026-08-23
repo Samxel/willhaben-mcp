@@ -919,6 +919,213 @@ async def list_car_models(make: Union[int, str]) -> dict:
     return {"make": CAR_MAKES.get(int(make_id)), "count": len(items), "models": items}
 
 
+# ---------------------------------------------------------------------------
+# Immobilien (real estate)
+#
+# The real-estate vertical lives under ``atz/2/<propertyTypeId>``: each property
+# type (rent flat, buy house, plot, ...) is its own category id in the path, and
+# the available filters differ per type. Filter options, ranges and the property
+# types ship in data/immobilien/filters.json.
+# ---------------------------------------------------------------------------
+
+IMMO_SEARCH_PREFIX = "atz/2"
+IMMO_RESULTS_BASE = "https://ad-search.willhaben.at/restapi/v2/search"
+
+_ROOM_BUCKETS = {
+    "1": "1X1", "2": "2X2", "3": "3X3", "4": "4X4", "5": "5X5",
+    "6-9": "6X9", "10+": "10X",
+}
+
+
+def _load_immo_data() -> dict:
+    path = Path(__file__).parent / "data" / "immobilien" / "filters.json"
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        logging.getLogger(__name__).warning("immobilien filters.json not found -- property search disabled")
+        return {"categories": {}, "selects": {}, "ranges": {}}
+
+
+_IMMO = _load_immo_data()
+IMMO_TYPES: dict[int, str] = {int(k): v for k, v in _IMMO.get("categories", {}).items()}
+_IMMO_TYPE_BY_NAME: dict[str, list[int]] = {}
+for _tid, _tlabel in IMMO_TYPES.items():
+    _IMMO_TYPE_BY_NAME.setdefault(_norm(_tlabel), []).append(_tid)
+
+
+def _resolve_immo_type(property_type: Union[int, str]) -> str:
+    """Resolve a property type given as id or name to its atz/2/<id> category id."""
+    if isinstance(property_type, int) or (isinstance(property_type, str) and property_type.strip().isdigit()):
+        tid = int(str(property_type).strip())
+        if tid not in IMMO_TYPES:
+            raise ValueError(f"Unknown property-type id {tid}. Use list_immobilien_types.")
+        return str(tid)
+    matches = _IMMO_TYPE_BY_NAME.get(_norm(property_type), [])
+    if not matches:
+        raise ValueError(f"Unknown property type '{property_type}'. Use list_immobilien_types.")
+    if len(matches) > 1:
+        opts = ", ".join(f"{i} ({IMMO_TYPES[i]})" for i in matches[:10])
+        raise ValueError(f"Property type '{property_type}' is ambiguous: {opts}. Please pass an id.")
+    return str(matches[0])
+
+
+def _resolve_options(value, options: dict, human: str) -> list[str]:
+    """Map one or more labels/ids to ids for an enumerated filter ({id: label})."""
+    by_norm = {_norm(l): i for i, l in options.items()}
+    if value is None:
+        return []
+    values = value if isinstance(value, list) else [value]
+    out = []
+    for v in values:
+        s = str(v).strip()
+        if s in options:
+            out.append(s)
+        elif _norm(s) in by_norm:
+            out.append(by_norm[_norm(s)])
+        else:
+            raise ValueError(f"Unknown {human} '{v}'. Options: {', '.join(options.values())}")
+    return out
+
+
+def _immo_options(qp: str) -> dict:
+    return _IMMO.get("selects", {}).get(qp, {}).get("options", {})
+
+
+def _resolve_rooms(rooms) -> list[str]:
+    if rooms is None:
+        return []
+    values = rooms if isinstance(rooms, list) else [rooms]
+    buckets = set(_ROOM_BUCKETS.values())
+    out = []
+    for v in values:
+        s = str(v).strip()
+        if s in buckets:
+            out.append(s)
+        elif s in _ROOM_BUCKETS:
+            out.append(_ROOM_BUCKETS[s])
+        else:
+            raise ValueError(f"Unknown rooms value '{v}'. Options: {', '.join(_ROOM_BUCKETS)}")
+    return out
+
+
+def _summarize_immo(ad: dict) -> dict:
+    """Like :func:`_summarize_ad`, plus the property-specific fields."""
+    result = _summarize_ad(ad)
+    attr = _attributes_to_dict(ad)
+    result.update({
+        "property_type": attr.get("PROPERTY_TYPE"),
+        "living_area_m2": attr.get("ESTATE_SIZE/LIVING_AREA") or attr.get("ESTATE_SIZE"),
+        "plot_area_m2": attr.get("PLOT/AREA"),
+        "rooms": attr.get("NUMBER_OF_ROOMS") or attr.get("NO_OF_ROOMS"),
+    })
+    return result
+
+
+@mcp.tool()
+async def search_immobilien(
+    property_type: Union[int, str] = "Alle Immobilien",
+    *,
+    keyword: Optional[str] = None,
+    object_type: Optional[Union[str, list[str]]] = None,
+    rooms: Optional[Union[str, int, list]] = None,
+    features: Optional[Union[str, list[str]]] = None,
+    outdoor: Optional[Union[str, list[str]]] = None,
+    price_from: Optional[float] = None,
+    price_to: Optional[float] = None,
+    area_from: Optional[int] = None,
+    area_to: Optional[int] = None,
+    plot_from: Optional[int] = None,
+    plot_to: Optional[int] = None,
+    sort_by: SortBy = "actuality",
+    area: Optional[Union[Bundesland, list[Bundesland]]] = None,
+    last_48h: bool = False,
+    rows: int = 4,
+    offset: int = 0,
+) -> dict:
+    """Search willhaben real estate (Immobilien).
+
+    Pick a ``property_type`` first (it selects buy vs rent and the kind of
+    property); everything else is optional. Use ``list_immobilien_types`` for the
+    available types, e.g. "Wohnung mieten", "Haus kaufen", "Grundstücke",
+    "Gewerbeimmobilie mieten", or "Alle Immobilien" (the default).
+
+    - ``object_type``: a specific sub-type (PROPERTY_TYPE), e.g. "Einfamilienhaus",
+      "Dachgeschosswohnung", "Villa".
+    - ``rooms``: "1"–"5", "6-9" or "10+" (number of rooms).
+    - ``features``: fittings like "Garage", "Keller", "Einbauküche", "Fahrstuhl".
+    - ``outdoor``: "Balkon", "Terrasse", "Garten", "Loggia", "Dachterrasse", ...
+    - ranges: ``price_from/to`` (EUR, rent or purchase depending on the type),
+      ``area_from/to`` (living area m²), ``plot_from/to`` (plot area m²).
+    - ``area``: federal state (region).
+
+    Filters that don't apply to the chosen type are ignored by willhaben.
+    """
+    catid = _resolve_immo_type(property_type)
+    params: dict = {
+        "sfId": str(uuid.uuid4()),
+        "isLog": "true",
+        "rows": rows,
+        "offset": offset,
+        "sort": sort[sort_by],
+    }
+    if keyword:
+        params["keyword"] = keyword
+
+    object_ids = _resolve_options(object_type, _immo_options("PROPERTY_TYPE"), "object type")
+    if object_ids:
+        params["PROPERTY_TYPE"] = object_ids
+    feature_ids = _resolve_options(features, _immo_options("ESTATE_PREFERENCE"), "feature")
+    if feature_ids:
+        params["ESTATE_PREFERENCE"] = feature_ids
+    outdoor_ids = _resolve_options(outdoor, _immo_options("FREE_AREA/FREE_AREA_TYPE"), "outdoor area")
+    if outdoor_ids:
+        params["FREE_AREA/FREE_AREA_TYPE"] = outdoor_ids
+    room_ids = _resolve_rooms(rooms)
+    if room_ids:
+        params["NO_OF_ROOMS_BUCKET"] = room_ids
+
+    for val, key in [
+        (price_from, "PRICE_FROM"), (price_to, "PRICE_TO"),
+        (area_from, "ESTATE_SIZE/LIVING_AREA_FROM"), (area_to, "ESTATE_SIZE/LIVING_AREA_TO"),
+        (plot_from, "PLOT/AREA_FROM"), (plot_to, "PLOT/AREA_TO"),
+    ]:
+        if val is not None:
+            params[key] = val
+
+    if last_48h:
+        params["periode"] = 2
+    if area is not None:
+        params["areaId"] = (
+            [area_id[a] for a in area] if isinstance(area, list) else area_id[area]
+        )
+
+    headers = {
+        "x-wh-client": WH_CLIENT,
+        "x-wh-visitor-id": str(uuid.uuid4()),
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+    url = f"{IMMO_RESULTS_BASE}/{IMMO_SEARCH_PREFIX}/{catid}"
+    logger.debug("Requesting immobilien: %s params=%s", url, params)
+    response = await client.get(url, params=params, headers=headers)
+    response.raise_for_status()
+    data = response.json()
+    ads = data.get("advertSummaryList", {}).get("advertSummary", [])
+    return {
+        "property_type": IMMO_TYPES.get(int(catid)),
+        "rows_found": data.get("rowsFound"),
+        "rows_returned": data.get("rowsReturned"),
+        "results": [_summarize_immo(ad) for ad in ads],
+    }
+
+
+@mcp.tool()
+async def list_immobilien_types() -> dict:
+    """List the willhaben real-estate property types for ``search_immobilien``."""
+    types = [{"id": i, "label": IMMO_TYPES[i]} for i in sorted(IMMO_TYPES)]
+    return {"count": len(types), "types": types}
+
+
 if __name__ == "__main__":
     url = f"http://{HOST}:{PORT}{MCP_PATH}"
     logger.info("Starting willhaben-mcp server on %s", url)

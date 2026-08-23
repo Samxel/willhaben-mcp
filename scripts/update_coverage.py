@@ -26,6 +26,10 @@ VERTICALS = {
         "https://ad-search.willhaben.at/restapi/v2/search/atz/3/2",
         {"isLog": "true"},
     ),
+    "immobilien": (
+        "https://ad-search.willhaben.at/restapi/v2/search/atz/2/90",
+        {"isLog": "true"},
+    ),
 }
 
 

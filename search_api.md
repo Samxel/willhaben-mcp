@@ -198,6 +198,55 @@ Car ads carry extra attributes: `CAR_MODEL/MAKE`, `CAR_MODEL/MODEL`,
 `TRANSMISSION_RESOLVED`, `ENGINE/EFFECT` (PS), `CONDITION_RESOLVED`,
 `NO_OF_OWNERS`.
 
+# Immobilien API (real estate)
+
+Real estate uses the vertical prefix `atz/2`, with the **property type as the
+category id in the path**:
+
+```
+GET https://app-aggregator.willhaben.at/restapi/v2/search/atz/2/<propertyTypeId>   # navigation + filters
+GET https://ad-search.willhaben.at/restapi/v2/search/atz/2/<propertyTypeId>        # result list
+```
+
+Each property type exposes a slightly different filter set. Types and options
+ship in `data/immobilien/filters.json`.
+
+## Property types
+
+| id | type |
+|---|---|
+| 90 | Alle Immobilien |
+| 131 | Wohnung mieten |
+| 101 | Wohnung kaufen |
+| 132 | Haus mieten |
+| 102 | Haus kaufen |
+| 14 | Grundstücke |
+| 15 | Gewerbeimmobilie kaufen |
+| 16 | Gewerbeimmobilie mieten |
+| 12 | Ferienimmobilie kaufen |
+| 32 | Ferienimmobilie mieten |
+| 42 | Neubauprojekte |
+
+## Filter params
+
+| Param | Filter | Notes |
+|---|---|---|
+| `PROPERTY_TYPE` | object sub-type | 42 options (Einfamilienhaus, Villa, Dachgeschosswohnung, ...) |
+| `NO_OF_ROOMS_BUCKET` | rooms | buckets: `1X1`..`5X5`, `6X9`, `10X` |
+| `ESTATE_PREFERENCE` | fittings | Garage, Keller, Einbauküche, Fahrstuhl, ... |
+| `FREE_AREA/FREE_AREA_TYPE` | outdoor | Balkon 20, Terrasse 10, Garten 60, Loggia 30, ... |
+| `OWNAGETYPE` | ownership | Kauf 1, Miete 2, Pacht 3 |
+| `areaId` | region | as in the marketplace |
+
+Range filters use `_FROM` / `_TO` pairs: `PRICE`, `ESTATE_SIZE/LIVING_AREA`
+(living m²), `ESTATE_SIZE/USEABLE_AREA` (usable m²), `PLOT/AREA` (plot m²),
+`PRICE_SQM` (price per m²). Toggle `periode=2` = last 48h. Multi-value params and
+slash keys (`ESTATE_SIZE/LIVING_AREA_FROM`, `FREE_AREA/FREE_AREA_TYPE`) are sent
+URL-encoded. Filters that do not apply to the chosen type are ignored.
+
+Car and property result ads carry type-specific attributes (e.g.
+`ESTATE_SIZE/LIVING_AREA`, `PROPERTY_TYPE` for real estate).
+
 # Detail API
 
 Full data for a single ad by its id.

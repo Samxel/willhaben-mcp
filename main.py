@@ -692,6 +692,41 @@ def _car_models_from_response(data: dict) -> dict:
     return out
 
 
+async def _fetch_car_models(make_id: str) -> dict:
+    """Fetch a make's models ({id: label}) from the navigation endpoint."""
+    params = {"isNavigation": "true", "CAR_MODEL/MAKE": make_id, "sfId": str(uuid.uuid4())}
+    headers = {
+        "x-wh-client": WH_CLIENT,
+        "x-wh-visitor-id": str(uuid.uuid4()),
+        "Accept": "application/json",
+    }
+    response = await client.get(AUTO_NAV_URL, params=params, headers=headers)
+    response.raise_for_status()
+    return _car_models_from_response(response.json())
+
+
+async def _resolve_car_model(model: Union[int, str], make_id: Optional[str]) -> str:
+    """Resolve a model given as id or name (within a make) to its CAR_MODEL/MODEL id."""
+    s = str(model).strip()
+    if s.isdigit():
+        return s
+    if make_id is None:
+        raise ValueError("Für die Modellsuche per Name bitte auch 'make' angeben (oder eine Modell-ID nutzen).")
+    models = await _fetch_car_models(make_id)  # {id: label}
+    by_norm = {_norm(l): i for i, l in models.items()}
+    mid = by_norm.get(_norm(s))
+    if mid is None:  # fall back to a substring match ("3er" -> "3er-Reihe")
+        cands = [(i, l) for i, l in models.items() if _norm(s) in _norm(l)]
+        if len(cands) == 1:
+            mid = cands[0][0]
+        elif len(cands) > 1:
+            opts = ", ".join(f"{l} ({i})" for i, l in cands[:10])
+            raise ValueError(f"Modell '{model}' ist mehrdeutig: {opts}. Bitte genauer oder per ID.")
+    if mid is None:
+        raise ValueError(f"Unbekanntes Modell '{model}' für diese Marke. Nutze list_car_models.")
+    return mid
+
+
 def _summarize_car(ad: dict) -> dict:
     """Like :func:`_summarize_ad`, plus the car-specific fields that matter."""
     result = _summarize_ad(ad)
@@ -746,8 +781,9 @@ async def search_autos(
 
     Everything is optional; combine what you need.
 
-    - ``make`` / ``model``: make id or name (see ``list_car_makes``) and a model
-      id (see ``list_car_models``, models are make-specific).
+    - ``make``: make id or name (see ``list_car_makes``).
+    - ``model``: model id or name, e.g. "3er-Reihe" or "7er" (needs ``make``;
+      resolved for you). See ``list_car_models`` for the exact names.
     - ``car_type``: Cabrio / Roadster, Klein-/ Kompaktwagen, Kleinbus,
       Kombi / Family Van, Limousine, Mopedauto, Sportwagen / Coupé,
       SUV / Geländewagen.
@@ -778,7 +814,7 @@ async def search_autos(
     if make is not None:
         params["CAR_MODEL/MAKE"] = _resolve_car_make(make)
     if model is not None:
-        params["CAR_MODEL/MODEL"] = str(model).strip()
+        params["CAR_MODEL/MODEL"] = await _resolve_car_model(model, params.get("CAR_MODEL/MAKE"))
 
     for value, qp, human in [
         (car_type, "CAR_TYPE", "Fahrzeugtyp"),
@@ -852,15 +888,7 @@ async def list_car_models(make: Union[int, str]) -> dict:
     ``make`` is a make id or name (see ``list_car_makes``).
     """
     make_id = _resolve_car_make(make)
-    params = {"isNavigation": "true", "CAR_MODEL/MAKE": make_id, "sfId": str(uuid.uuid4())}
-    headers = {
-        "x-wh-client": WH_CLIENT,
-        "x-wh-visitor-id": str(uuid.uuid4()),
-        "Accept": "application/json",
-    }
-    response = await client.get(AUTO_NAV_URL, params=params, headers=headers)
-    response.raise_for_status()
-    models = _car_models_from_response(response.json())
+    models = await _fetch_car_models(make_id)
     items = [{"id": v, "label": l} for v, l in models.items()]
     return {"make": CAR_MAKES.get(int(make_id)), "count": len(items), "models": items}
 

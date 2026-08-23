@@ -48,7 +48,7 @@ specific subcategory first.
 **`search_autos(make, model, ...)`**
 
 Search used cars (Gebrauchtwagen). All filters are optional.
-- `make` (id or name) and `model` (id)
+- `make` (id or name) and `model` (id or name, e.g. "3er-Reihe")
 - `car_type`, `fuel`, `transmission`, `wheel_drive`
 - `condition` (Gebrauchtwagen, Neuwagen, Oldtimer, ...), `color`, `dealer`
 - `equipment` (e.g. Sitzheizung, Anhängerkupplung)

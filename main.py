@@ -188,14 +188,14 @@ def _resolve_category(category: Union[int, str]) -> str:
     if isinstance(category, int) or (isinstance(category, str) and category.strip().isdigit()):
         cid = int(str(category).strip())
         if cid not in CATEGORY_LABEL:
-            raise ValueError(f"Unbekannte Kategorie-ID {cid}. Nutze das Tool list_categories.")
+            raise ValueError(f"Unknown category id {cid}. Use the list_categories tool.")
         return str(cid)
     matches = _CATEGORY_BY_NAME.get(_norm(category), [])
     if not matches:
-        raise ValueError(f"Unbekannte Kategorie '{category}'. Nutze list_categories, um die ID zu finden.")
+        raise ValueError(f"Unknown category '{category}'. Use list_categories to find the id.")
     if len(matches) > 1:
         opts = ", ".join(f"{i} ({CATEGORY_PATH[i]})" for i in matches[:10])
-        raise ValueError(f"Kategorie '{category}' ist mehrdeutig ({len(matches)} Treffer): {opts}. Bitte ID angeben.")
+        raise ValueError(f"Category '{category}' is ambiguous ({len(matches)} matches): {opts}. Please pass an id.")
     return str(matches[0])
 
 
@@ -216,7 +216,7 @@ def _resolve_sizes(values, mapping: dict, kind: str) -> list[str]:
             out.append(ids_by_norm[_norm(s)])
         else:
             raise ValueError(
-                f"Unbekannte {kind} '{v}'. Gueltige Werte: {', '.join(mapping)}"
+                f"Unknown {kind} '{v}'. Valid values: {', '.join(mapping)}"
             )
     return out
 
@@ -357,7 +357,7 @@ async def search_willhaben(
     returned id(s) via the ``brand`` parameter.
     """
     if not keyword and category is None:
-        raise ValueError("Bitte 'keyword' und/oder 'category' angeben.")
+        raise ValueError("Provide 'keyword' and/or 'category'.")
 
     params: dict = {
         "sfId": str(uuid.uuid4()),
@@ -378,8 +378,8 @@ async def search_willhaben(
     if condition is not None:
         conds = condition if isinstance(condition, list) else [condition]
         tree_attrs += [condition_id[c] for c in conds]
-    tree_attrs += _resolve_sizes(clothing_size, clothing_size_id, "Kleidergroesse")
-    tree_attrs += _resolve_sizes(shoe_size, shoe_size_id, "Schuhgroesse")
+    tree_attrs += _resolve_sizes(clothing_size, clothing_size_id, "clothing size")
+    tree_attrs += _resolve_sizes(shoe_size, shoe_size_id, "shoe size")
     if color is not None:
         cols = color if isinstance(color, list) else [color]
         tree_attrs += [color_id[c] for c in cols]
@@ -600,7 +600,7 @@ async def search_brands(
         response.raise_for_status()
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 500:
-            return {"count": 0, "brands": [], "note": "Diese Kategorie hat keinen Marken-Filter. Versuche eine spezifischere Unterkategorie."}
+            return {"count": 0, "brands": [], "note": "This category has no brand filter. Try a more specific subcategory."}
         raise
     data = response.json()
     brands, seen = [], set()
@@ -652,14 +652,14 @@ def _resolve_car_make(make: Union[int, str]) -> str:
     if isinstance(make, int) or (isinstance(make, str) and make.strip().isdigit()):
         mid = int(str(make).strip())
         if mid not in CAR_MAKES:
-            raise ValueError(f"Unbekannte Marken-ID {mid}. Nutze list_car_makes.")
+            raise ValueError(f"Unknown make id {mid}. Use list_car_makes.")
         return str(mid)
     matches = _CAR_MAKE_BY_NAME.get(_norm(make), [])
     if not matches:
-        raise ValueError(f"Unbekannte Marke '{make}'. Nutze list_car_makes.")
+        raise ValueError(f"Unknown make '{make}'. Use list_car_makes.")
     if len(matches) > 1:
         opts = ", ".join(f"{i} ({CAR_MAKES[i]})" for i in matches[:10])
-        raise ValueError(f"Marke '{make}' ist mehrdeutig: {opts}. Bitte ID angeben.")
+        raise ValueError(f"Make '{make}' is ambiguous: {opts}. Please pass an id.")
     return str(matches[0])
 
 
@@ -678,7 +678,7 @@ def _resolve_car_select(value, qp: str, human: str) -> list[str]:
         elif _norm(s) in by_norm:
             out.append(by_norm[_norm(s)])
         else:
-            raise ValueError(f"Unbekannte(r) {human} '{v}'. Optionen: {', '.join(options.values())}")
+            raise ValueError(f"Unknown {human} '{v}'. Options: {', '.join(options.values())}")
     return out
 
 
@@ -730,7 +730,7 @@ async def _resolve_car_model(model: Union[int, str], make_id: Optional[str]) -> 
     if s.isdigit():
         return s
     if make_id is None:
-        raise ValueError("Für die Modellsuche per Name bitte auch 'make' angeben (oder eine Modell-ID nutzen).")
+        raise ValueError("To search by model name, also pass 'make' (or use a model id).")
     models = await _fetch_car_models(make_id)  # {id: label}
     by_norm = {_norm(l): i for i, l in models.items()}
     mid = by_norm.get(_norm(s))
@@ -740,9 +740,9 @@ async def _resolve_car_model(model: Union[int, str], make_id: Optional[str]) -> 
             mid = cands[0][0]
         elif len(cands) > 1:
             opts = ", ".join(f"{l} ({i})" for i, l in cands[:10])
-            raise ValueError(f"Modell '{model}' ist mehrdeutig: {opts}. Bitte genauer oder per ID.")
+            raise ValueError(f"Model '{model}' is ambiguous: {opts}. Be more specific or pass an id.")
     if mid is None:
-        raise ValueError(f"Unbekanntes Modell '{model}' für diese Marke. Nutze list_car_models.")
+        raise ValueError(f"Unknown model '{model}' for this make. Use list_car_models.")
     return mid
 
 
@@ -843,14 +843,14 @@ async def search_autos(
         params["CAR_MODEL/MODEL"] = await _resolve_car_model(model, params.get("CAR_MODEL/MAKE"))
 
     for value, qp, human in [
-        (car_type, "CAR_TYPE", "Fahrzeugtyp"),
-        (fuel, "ENGINE/FUEL", "Treibstoff"),
-        (transmission, "TRANSMISSION", "Getriebeart"),
-        (wheel_drive, "WHEEL_DRIVE", "Antriebsart"),
-        (condition, "MOTOR_CONDITION", "Zustand"),
-        (color, "EXTERIOR_COLOUR_MAIN", "Außenfarbe"),
-        (dealer, "DEALER", "Verkäufer"),
-        (equipment, "EQUIPMENT", "Ausstattung"),
+        (car_type, "CAR_TYPE", "car type"),
+        (fuel, "ENGINE/FUEL", "fuel"),
+        (transmission, "TRANSMISSION", "transmission"),
+        (wheel_drive, "WHEEL_DRIVE", "drive"),
+        (condition, "MOTOR_CONDITION", "condition"),
+        (color, "EXTERIOR_COLOUR_MAIN", "colour"),
+        (dealer, "DEALER", "seller"),
+        (equipment, "EQUIPMENT", "equipment"),
     ]:
         ids = _resolve_car_select(value, qp, human)
         if ids:

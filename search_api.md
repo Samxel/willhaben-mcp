@@ -150,6 +150,54 @@ data["advertSummaryList"]["advertSummary"]  # list of ads
 Each ad's `description` (attribute `BODY_DYN`) is **truncated** here. Use the
 Detail API to get the full text.
 
+# Auto & Motor API (cars)
+
+The used-car vertical (Gebrauchtwagen) uses the same search endpoints as the
+marketplace but a different vertical path, `atz/3/2`:
+
+```
+GET https://app-aggregator.willhaben.at/restapi/v2/search/atz/3/2   # navigation + filters
+GET https://ad-search.willhaben.at/restapi/v2/search/atz/3/2        # result list
+```
+
+Headers are the same as the marketplace search. `isNavigation=true` returns the
+`filterContainer` (available filters and their options); a plain request returns
+`advertSummaryList` + `rowsFound`.
+
+## Filter params
+
+Enumerated filters (id lists ship in `data/auto-motor/filters.json`):
+
+| Param | Filter | Notes |
+|---|---|---|
+| `CAR_MODEL/MAKE` | make | id (list in filters.json) |
+| `CAR_MODEL/MODEL` | model | make-specific; fetch via a navigation request with `CAR_MODEL/MAKE=<id>` |
+| `CAR_TYPE` | body type | 8 options |
+| `ENGINE/FUEL` | fuel | Benzin 100001, Diesel 100003, Elektro 100004, ... |
+| `TRANSMISSION` | gearbox | Automatik 180004, Schaltgetriebe 180001 |
+| `WHEEL_DRIVE` | drive | Allrad 2, Hinterrad 1, Vorderrad 3 |
+| `MOTOR_CONDITION` | condition | Gebrauchtwagen 20, Neuwagen 10, Oldtimer 93, ... |
+| `EXTERIOR_COLOUR_MAIN` | colour | 15 options |
+| `EQUIPMENT` | equipment | 115 options, multi-value |
+| `DEALER` | seller | Händler 0, Privat 1 |
+
+Range filters use `_FROM` / `_TO` pairs: `PRICE`, `YEAR_MODEL` (first
+registration), `MILEAGE` (km), `ENGINEEFFECT` (power, kW), `BATTERY_CAPACITY`
+(kWh), `WLTP_RANGE` (km), `NO_OF_DOORS`, `NO_OF_SEATS`.
+
+Toggles: `WARRANTY=1`, `CONDITION_REPORT=1` (Pickerl §57a), `periode=2` (last 48h).
+`areaId` and `sort` work as in the marketplace.
+
+Multi-value params (selects, `EQUIPMENT`, `areaId`) become repeated query keys.
+Query keys with a slash (`CAR_MODEL/MAKE`, `ENGINE/FUEL`) are sent URL-encoded.
+
+## Result fields
+
+Car ads carry extra attributes: `CAR_MODEL/MAKE`, `CAR_MODEL/MODEL`,
+`CAR_MODEL/MODEL_SPECIFICATION`, `YEAR_MODEL`, `MILEAGE`, `ENGINE/FUEL_RESOLVED`,
+`TRANSMISSION_RESOLVED`, `ENGINE/EFFECT` (PS), `CONDITION_RESOLVED`,
+`NO_OF_OWNERS`.
+
 # Detail API
 
 Full data for a single ad by its id.

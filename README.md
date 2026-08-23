@@ -1,10 +1,13 @@
 # willhaben-mcp
 
 An MCP server that lets an AI search [willhaben.at](https://www.willhaben.at)
-marketplace listings and pull the full details of ads. It wraps willhaben's
-reverse-engineered mobile-app API and returns the important fields to the AI.
+and pull the full details of ads. It covers the marketplace (Marktplatz) and
+the Auto & Motor cars vertical, wrapping willhaben's reverse-engineered
+mobile-app API and returning the important fields to the AI.
 
 ## Tools
+
+### Marketplace
 
 **`search_willhaben(keyword, ...)`**
 
@@ -21,19 +24,14 @@ Filters:
 
 Returns a trimmed list of hits.
 
-**`get_ad_detail(ad_id)`**
-
-Everything about one ad: the full (untruncated) description, all images,
-itemised attributes, category path and precise location. Run it on an id you
-got from a search.
-
 **`list_categories(query, parent_id)`**
 
 Find category ids for the `category` filter.
 - `query`: search the whole tree by name
 - `parent_id`: browse one level down (omit both for the top-level categories)
 
-The full tree (~3500 categories) ships with the server in `category-tree.json`.
+The full tree (~3500 categories) ships with the server in
+`data/marktplatz/categories.json`.
 
 **`search_brands(category, term)`**
 
@@ -44,6 +42,38 @@ hand an id to `search_willhaben(brand=...)`.
 Note: condition, sizes, color, pattern and brand are category-dependent.
 Applying them in a broad category can return zero hits, so drill into a
 specific subcategory first.
+
+### Auto & Motor
+
+**`search_autos(make, model, ...)`**
+
+Search used cars (Gebrauchtwagen). All filters are optional.
+- `make` (id or name) and `model` (id)
+- `car_type`, `fuel`, `transmission`, `wheel_drive`
+- `condition` (Gebrauchtwagen, Neuwagen, Oldtimer, ...), `color`, `dealer`
+- `equipment` (e.g. Sitzheizung, Anhängerkupplung)
+- ranges: `price_from/to`, `year_from/to`, `mileage_from/to`, `power_from/to`
+- `warranty`, `condition_report` (Pickerl §57a), region, last 48h, sorting, paging
+
+Enumerated filters accept the willhaben label or id. Results include car fields
+(make, model, year, mileage, fuel, transmission, power). The filter and make
+data ships in `data/auto-motor/filters.json`.
+
+**`list_car_makes(query)`**
+
+List car make ids for `search_autos`. Optional `query` filters by name.
+
+**`list_car_models(make)`**
+
+List the models of a make (fetched live, since models are make-specific).
+
+### Shared
+
+**`get_ad_detail(ad_id)`**
+
+Everything about one ad: the full (untruncated) description, all images,
+itemised attributes, category path and precise location. Works for marketplace
+and car ads. Run it on an id you got from a search.
 
 ## Setup
 
@@ -71,10 +101,10 @@ Point your MCP client at that URL. Host, port and path live at the top of
 - The detail API is gated by a static app token and only speaks HTTP/2. Both are
   handled in `main.py`. If willhaben rotates the token, grab a fresh one from the
   app's request headers and replace `WH_APPLICATION_TOKEN`.
-- `category-tree.json` is a generated snapshot of willhaben's marketplace
-  category tree (id, label, parentId, children). `main.py` loads it at startup
-  for the `category` filter and `list_categories`. Re-crawl it if the taxonomy
-  changes.
+- Generated data lives under `data/`, one folder per vertical:
+  `data/marktplatz/categories.json` (the ~3500-category tree) and
+  `data/auto-motor/filters.json` (car filters, options and makes). `main.py`
+  loads them at startup. Re-crawl them if willhaben changes.
 - API details are documented in [`search_api.md`](search_api.md).
 - This uses willhaben's internal API, not an official one. Be nice to it.
 

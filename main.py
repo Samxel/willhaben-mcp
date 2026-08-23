@@ -150,11 +150,11 @@ def _load_categories() -> list[dict]:
     """Load the crawled willhaben category tree (``[{id,label,parentId,children}]``)
     that sits next to this module. Missing file -> empty tree (search still works
     without category filtering)."""
-    path = Path(__file__).with_name("category-tree.json")
+    path = Path(__file__).parent / "data" / "marktplatz" / "categories.json"
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        logging.getLogger(__name__).warning("category-tree.json not found -- category filter disabled")
+        logging.getLogger(__name__).warning("marktplatz categories.json not found -- category filter disabled")
         return []
 
 
@@ -533,6 +533,273 @@ async def search_brands(
             seen.add(val)
             brands.append({"id": val, "label": label})
     return {"count": len(brands), "returned": min(len(brands), limit), "brands": brands[:limit]}
+
+
+# ---------------------------------------------------------------------------
+# Auto & Motor (cars / Gebrauchtwagen)
+#
+# The car vertical lives under `atz/3/2`. Navigation/filter metadata comes from
+# app-aggregator, result lists from ad-search (same hosts as the marketplace).
+# Enumerated filters (car type, fuel, ...) and the make list ship in
+# data/auto-motor/filters.json; models are make-specific and fetched on demand.
+# ---------------------------------------------------------------------------
+
+AUTO_SEARCH_PATH = "atz/3/2"
+AUTO_RESULTS_URL = f"https://ad-search.willhaben.at/restapi/v2/search/{AUTO_SEARCH_PATH}"
+AUTO_NAV_URL = f"https://app-aggregator.willhaben.at/restapi/v2/search/{AUTO_SEARCH_PATH}"
+
+
+def _load_auto_data() -> dict:
+    path = Path(__file__).parent / "data" / "auto-motor" / "filters.json"
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        logging.getLogger(__name__).warning("auto-motor filters.json not found -- car search disabled")
+        return {"selects": {}, "ranges": {}, "toggles": {}, "makes": {}}
+
+
+_AUTO = _load_auto_data()
+CAR_MAKES: dict[int, str] = {int(k): v for k, v in _AUTO.get("makes", {}).items()}
+_CAR_MAKE_BY_NAME: dict[str, list[int]] = {}
+for _mid, _mlabel in CAR_MAKES.items():
+    _CAR_MAKE_BY_NAME.setdefault(_norm(_mlabel), []).append(_mid)
+
+
+def _resolve_car_make(make: Union[int, str]) -> str:
+    """Resolve a car make given as id or (unique) name to its CAR_MODEL/MAKE id."""
+    if isinstance(make, int) or (isinstance(make, str) and make.strip().isdigit()):
+        mid = int(str(make).strip())
+        if mid not in CAR_MAKES:
+            raise ValueError(f"Unbekannte Marken-ID {mid}. Nutze list_car_makes.")
+        return str(mid)
+    matches = _CAR_MAKE_BY_NAME.get(_norm(make), [])
+    if not matches:
+        raise ValueError(f"Unbekannte Marke '{make}'. Nutze list_car_makes.")
+    if len(matches) > 1:
+        opts = ", ".join(f"{i} ({CAR_MAKES[i]})" for i in matches[:10])
+        raise ValueError(f"Marke '{make}' ist mehrdeutig: {opts}. Bitte ID angeben.")
+    return str(matches[0])
+
+
+def _resolve_car_select(value, qp: str, human: str) -> list[str]:
+    """Map one or more labels/ids to ids for an enumerated car filter."""
+    options = _AUTO.get("selects", {}).get(qp, {}).get("options", {})  # {id: label}
+    by_norm = {_norm(l): i for i, l in options.items()}
+    if value is None:
+        return []
+    values = value if isinstance(value, list) else [value]
+    out = []
+    for v in values:
+        s = str(v).strip()
+        if s in options:
+            out.append(s)
+        elif _norm(s) in by_norm:
+            out.append(by_norm[_norm(s)])
+        else:
+            raise ValueError(f"Unbekannte(r) {human} '{v}'. Optionen: {', '.join(options.values())}")
+    return out
+
+
+def _car_models_from_response(data: dict) -> dict:
+    """Pull the CAR_MODEL/MODEL options out of a navigation response."""
+    out: dict[str, str] = {}
+
+    def collect(node):
+        if isinstance(node, dict):
+            v, l = node.get("value"), node.get("label")
+            if v is not None and l is not None:
+                out[str(v)] = l
+            for child in node.values():
+                collect(child)
+        elif isinstance(node, list):
+            for child in node:
+                collect(child)
+
+    def find(node):
+        if isinstance(node, dict):
+            if node.get("queryParameterName") == "CAR_MODEL/MODEL":
+                collect(node)
+            for child in node.values():
+                find(child)
+        elif isinstance(node, list):
+            for child in node:
+                find(child)
+
+    find(data.get("filterContainer", {}))
+    return out
+
+
+def _summarize_car(ad: dict) -> dict:
+    """Like :func:`_summarize_ad`, plus the car-specific fields that matter."""
+    result = _summarize_ad(ad)
+    attr = _attributes_to_dict(ad)
+    mileage = attr.get("MILEAGE")
+    result.update({
+        "make": attr.get("CAR_MODEL/MAKE"),
+        "model": attr.get("CAR_MODEL/MODEL"),
+        "variant": attr.get("CAR_MODEL/MODEL_SPECIFICATION"),
+        "year": attr.get("YEAR_MODEL"),
+        "mileage_km": int(mileage) if mileage not in (None, "") else None,
+        "fuel": attr.get("ENGINE/FUEL_RESOLVED"),
+        "transmission": attr.get("TRANSMISSION_RESOLVED"),
+        "power_ps": attr.get("ENGINE/EFFECT"),
+        "condition": attr.get("CONDITION_RESOLVED"),
+        "owners": attr.get("NO_OF_OWNERS"),
+    })
+    return result
+
+
+@mcp.tool()
+async def search_autos(
+    make: Optional[Union[int, str]] = None,
+    model: Optional[Union[int, str]] = None,
+    *,
+    keyword: Optional[str] = None,
+    car_type: Optional[Union[str, list[str]]] = None,
+    fuel: Optional[Union[str, list[str]]] = None,
+    transmission: Optional[Union[str, list[str]]] = None,
+    wheel_drive: Optional[Union[str, list[str]]] = None,
+    condition: Optional[Union[str, list[str]]] = None,
+    color: Optional[Union[str, list[str]]] = None,
+    dealer: Optional[Union[str, list[str]]] = None,
+    equipment: Optional[Union[str, list[str]]] = None,
+    price_from: Optional[float] = None,
+    price_to: Optional[float] = None,
+    year_from: Optional[int] = None,
+    year_to: Optional[int] = None,
+    mileage_from: Optional[int] = None,
+    mileage_to: Optional[int] = None,
+    power_from: Optional[int] = None,
+    power_to: Optional[int] = None,
+    warranty: bool = False,
+    condition_report: bool = False,
+    sort_by: SortBy = "actuality",
+    area: Optional[Union[Bundesland, list[Bundesland]]] = None,
+    last_48h: bool = False,
+    rows: int = 4,
+    offset: int = 0,
+) -> dict:
+    """Search willhaben's Auto & Motor cars (Gebrauchtwagen).
+
+    Everything is optional; combine what you need.
+
+    - ``make`` / ``model``: make id or name (see ``list_car_makes``) and a model
+      id (see ``list_car_models``, models are make-specific).
+    - ``car_type``: Cabrio / Roadster, Klein-/ Kompaktwagen, Kleinbus,
+      Kombi / Family Van, Limousine, Mopedauto, Sportwagen / Coupé,
+      SUV / Geländewagen.
+    - ``fuel``: Benzin, Diesel, Elektro, Gas, Hybrid Elektro/Benzin,
+      Hybrid Elektro/Diesel, Wasserstoff.
+    - ``transmission``: Automatik, Schaltgetriebe.
+    - ``wheel_drive``: Allrad, Hinterrad, Vorderrad.
+    - ``condition``: Gebrauchtwagen, Jahreswagen, Neuwagen, Oldtimer,
+      Tageszulassung, Unfallwagen, Vorführwagen.
+    - ``color``: exterior colour (Schwarz, Weiß, ...).
+    - ``dealer``: Händler or Privat.
+    - ``equipment``: one or more equipment features (e.g. "Sitzheizung vorne").
+    - ranges: ``price_from/to`` (EUR), ``year_from/to`` (first registration),
+      ``mileage_from/to`` (km), ``power_from/to`` (kW).
+    - ``warranty`` / ``condition_report`` (Pickerl §57a) toggles.
+
+    Names and ids for the enumerated filters are accepted interchangeably.
+    """
+    params: dict = {
+        "sfId": str(uuid.uuid4()),
+        "isLog": "true",
+        "rows": rows,
+        "offset": offset,
+        "sort": sort[sort_by],
+    }
+    if keyword:
+        params["keyword"] = keyword
+    if make is not None:
+        params["CAR_MODEL/MAKE"] = _resolve_car_make(make)
+    if model is not None:
+        params["CAR_MODEL/MODEL"] = str(model).strip()
+
+    for value, qp, human in [
+        (car_type, "CAR_TYPE", "Fahrzeugtyp"),
+        (fuel, "ENGINE/FUEL", "Treibstoff"),
+        (transmission, "TRANSMISSION", "Getriebeart"),
+        (wheel_drive, "WHEEL_DRIVE", "Antriebsart"),
+        (condition, "MOTOR_CONDITION", "Zustand"),
+        (color, "EXTERIOR_COLOUR_MAIN", "Außenfarbe"),
+        (dealer, "DEALER", "Verkäufer"),
+        (equipment, "EQUIPMENT", "Ausstattung"),
+    ]:
+        ids = _resolve_car_select(value, qp, human)
+        if ids:
+            params[qp] = ids
+
+    for val, key in [
+        (price_from, "PRICE_FROM"), (price_to, "PRICE_TO"),
+        (year_from, "YEAR_MODEL_FROM"), (year_to, "YEAR_MODEL_TO"),
+        (mileage_from, "MILEAGE_FROM"), (mileage_to, "MILEAGE_TO"),
+        (power_from, "ENGINEEFFECT_FROM"), (power_to, "ENGINEEFFECT_TO"),
+    ]:
+        if val is not None:
+            params[key] = val
+
+    if warranty:
+        params["WARRANTY"] = 1
+    if condition_report:
+        params["CONDITION_REPORT"] = 1
+    if last_48h:
+        params["periode"] = 2
+    if area is not None:
+        params["areaId"] = (
+            [area_id[a] for a in area] if isinstance(area, list) else area_id[area]
+        )
+
+    headers = {
+        "x-wh-client": WH_CLIENT,
+        "x-wh-visitor-id": str(uuid.uuid4()),
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+    logger.debug("Requesting autos: %s params=%s", AUTO_RESULTS_URL, params)
+    response = await client.get(AUTO_RESULTS_URL, params=params, headers=headers)
+    response.raise_for_status()
+    data = response.json()
+    ads = data.get("advertSummaryList", {}).get("advertSummary", [])
+    return {
+        "rows_found": data.get("rowsFound"),
+        "rows_returned": data.get("rowsReturned"),
+        "results": [_summarize_car(ad) for ad in ads],
+    }
+
+
+@mcp.tool()
+async def list_car_makes(query: Optional[str] = None, limit: int = 60) -> dict:
+    """List car make ids for ``search_autos``. Optional ``query`` filters by name."""
+    if query:
+        q = _norm(query)
+        ids = [i for i, name in CAR_MAKES.items() if q in _norm(name)]
+    else:
+        ids = list(CAR_MAKES)
+    ids.sort(key=lambda i: CAR_MAKES[i].lower())
+    makes = [{"id": i, "label": CAR_MAKES[i]} for i in ids[:limit]]
+    return {"count": len(ids), "returned": len(makes), "makes": makes}
+
+
+@mcp.tool()
+async def list_car_models(make: Union[int, str]) -> dict:
+    """List the models of a car make, for the ``model`` filter of ``search_autos``.
+
+    ``make`` is a make id or name (see ``list_car_makes``).
+    """
+    make_id = _resolve_car_make(make)
+    params = {"isNavigation": "true", "CAR_MODEL/MAKE": make_id, "sfId": str(uuid.uuid4())}
+    headers = {
+        "x-wh-client": WH_CLIENT,
+        "x-wh-visitor-id": str(uuid.uuid4()),
+        "Accept": "application/json",
+    }
+    response = await client.get(AUTO_NAV_URL, params=params, headers=headers)
+    response.raise_for_status()
+    models = _car_models_from_response(response.json())
+    items = [{"id": v, "label": l} for v, l in models.items()]
+    return {"make": CAR_MAKES.get(int(make_id)), "count": len(items), "models": items}
 
 
 if __name__ == "__main__":

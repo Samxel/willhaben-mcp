@@ -5,11 +5,9 @@ and pull the full details of ads. It covers the marketplace (Marktplatz) and
 the Auto & Motor cars vertical, wrapping willhaben's reverse-engineered
 mobile-app API and returning the important fields to the AI.
 
-<p align="center"><em>Live listings currently searchable on willhaben (updated daily)</em></p>
-
 <p align="center">
-  <a href="https://www.willhaben.at/iad/kaufen-und-verkaufen/marktplatz"><img alt="Marktplatz listings" src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FSamxel%2Fwillhaben-mcp%2Fmain%2Fcoverage.json&query=%24.marktplatz&label=Marktplatz&color=ff7300&cacheSeconds=3600"></a>
-  <a href="https://www.willhaben.at/iad/gebrauchtwagen/auto"><img alt="Auto & Motor listings" src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FSamxel%2Fwillhaben-mcp%2Fmain%2Fcoverage.json&query=%24.autos&label=Auto%20%26%20Motor&color=ff7300&cacheSeconds=3600"></a>
+  <a href="https://www.willhaben.at/iad/kaufen-und-verkaufen/marktplatz"><img alt="Marktplatz listings" src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FSamxel%2Fwillhaben-mcp%2Fmain%2Fcoverage.json&query=%24.marktplatz&label=Marktplatz&color=green&suffix=%20listings&cacheSeconds=3600"></a>
+  <a href="https://www.willhaben.at/iad/gebrauchtwagen/auto"><img alt="Auto & Motor listings" src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FSamxel%2Fwillhaben-mcp%2Fmain%2Fcoverage.json&query=%24.autos&label=Auto%20%26%20Motor&color=ff7300&suffix=%20listings&cacheSeconds=3600"></a>
 </p>
 
 ## Highlights

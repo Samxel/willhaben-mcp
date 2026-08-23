@@ -1,7 +1,9 @@
 {
   "updated": "2026-08-23",
-  "marktplatz": "12.8M",
-  "marktplatz_count": 12840731,
+  "marktplatz": "12.9M",
+  "marktplatz_count": 12851725,
   "autos": "154k",
-  "autos_count": 154244
+  "autos_count": 154464,
+  "immobilien": "110k",
+  "immobilien_count": 110451
 }

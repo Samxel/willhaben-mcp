@@ -2,51 +2,42 @@
 """Fetch live willhaben listing counts per vertical and write ``coverage.json``.
 
 The README's shields.io badges read that file, and a scheduled GitHub Action
-runs this script to keep the numbers fresh. One request per vertical (the total
-``rowsFound`` of an empty search), so it stays cheap.
+runs this script to keep the numbers fresh. A single request to the vertical
+overview endpoint returns ``nrOfAdverts`` for every vertical at once.
 """
 
 import datetime
 import gzip
 import json
-import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
 
 WH_CLIENT = "api@tailored-apps.com;willhabenapp;android;8.57.0;responsive_app"
+VERTICAL_URL = "https://www.willhaben.at/webapi/ad-search/vertical"
 
-# vertical -> (search endpoint, extra query params)
+# willhaben vertical id -> coverage.json key
 VERTICALS = {
-    "marktplatz": (
-        "https://ad-search.willhaben.at/restapi/v2/search/atz/seo/kaufen-und-verkaufen/marktplatz",
-        {},
-    ),
-    "autos": (
-        "https://ad-search.willhaben.at/restapi/v2/search/atz/3/2",
-        {"isLog": "true"},
-    ),
-    "immobilien": (
-        "https://ad-search.willhaben.at/restapi/v2/search/atz/2/90",
-        {"isLog": "true"},
-    ),
+    5: "marktplatz",
+    3: "autos",
+    2: "immobilien",
 }
 
 
-def rows_found(url: str, params: dict) -> int:
-    query = urllib.parse.urlencode({**params, "rows": "0"}, doseq=True)
+def fetch_verticals() -> dict[int, int]:
     headers = {
         "x-wh-client": WH_CLIENT,
         "x-wh-visitor-id": str(uuid.uuid4()),
         "Accept": "application/json",
         "accept-encoding": "gzip",
     }
-    request = urllib.request.Request(f"{url}?{query}", headers=headers)
+    request = urllib.request.Request(VERTICAL_URL, headers=headers)
     with urllib.request.urlopen(request, timeout=30) as response:
         body = response.read()
         if body[:2] == b"\x1f\x8b":
             body = gzip.decompress(body)
-        return int(json.loads(body.decode())["rowsFound"])
+        data = json.loads(body.decode())
+        return {v["id"]: int(v["nrOfAdverts"]) for v in data["vertical"]}
 
 
 def human(n: int) -> str:
@@ -58,9 +49,11 @@ def human(n: int) -> str:
 
 
 def main() -> None:
+    counts = fetch_verticals()
+
     coverage = {"updated": datetime.date.today().isoformat()}
-    for name, (url, params) in VERTICALS.items():
-        count = rows_found(url, params)
+    for vertical_id, name in VERTICALS.items():
+        count = counts[vertical_id]
         coverage[name] = human(count)
         coverage[f"{name}_count"] = count
 

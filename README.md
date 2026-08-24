@@ -110,15 +110,22 @@ List the real-estate property types for `search_immobilien`.
 
 **`get_ad_detail(ad_id)`**
 
-Everything about one ad: the full (untruncated) description, all images,
-itemised attributes, category path and precise location. Works for marketplace
-and car ads. Run it on an id you got from a search.
+Everything about one ad: the full description, all images, itemised attributes,
+category path and precise location. Works across verticals. Run it on an id you
+got from a search. The mobile API caps the description near 600 characters, so
+when it looks cut off the full clean text is pulled from the ad's web page.
 
 **`get_ad_images(ad_id, max_images=4)`**
 
 Download an ad's photos server-side and return them as real image content
 (base64), so a vision-capable client sees the pictures instead of just URLs.
 Handy when you want to actually look at a listing.
+
+**`get_ad_seller(ad_id)`**
+
+Who is selling: name, private vs dealer, rating and reply time (private
+sellers), the member-since / created date, and location. Useful for a trust or
+plausibility check the ad itself does not answer.
 
 ## Setup
 

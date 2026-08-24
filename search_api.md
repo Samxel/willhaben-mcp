@@ -303,11 +303,34 @@ Widget-based layout (`data["widgets"]`, a list of typed blocks). The useful bits
 | `PICTURE_SLIDER` | `advertImageList[]` with `referenceImageUrl` (all images) |
 | `TITLE_WITH_PRICE` | `formattedPrice`, `deliveryCosts`, `hasPaylivery` |
 | `KEY_VALUE_PAIRS_LIST` | `keyValuePairsList[]`, itemised attributes (Marke, Zustand, and so on) |
-| `PARAGRAPHED_TEXT` | `teaser` is the **full description** (pick the longest; others are labels) |
+| `PARAGRAPHED_TEXT` | `teaser` is the description, but **capped near 600 chars** (pick the longest; others are labels). See [Full description](#full-description) for the untruncated text. |
 | `CATEGORIES` | `categoryPath.categoryEntryList[]`, the category path |
 
 Flat, reliable fields live under
 `data["taggingData"]["tmsDataValues"]["tmsData"]` (e.g. `seller_name`,
-`is_private`, `exact_price`, `post_code`, `region_level_2`/`region_level_3`,
-`publish_date`), plus `data["adId"]`, `data["description"]` (title) and
-`data["payliveryEnabled"]`.
+`seller_id`, `is_private`, `exact_price`, `post_code`,
+`region_level_2`/`region_level_3`, `publish_date`), plus `data["adId"]`,
+`data["description"]` (title) and `data["payliveryEnabled"]`.
+
+## Full description
+
+The detail API truncates the description to about 600 characters. The full,
+clean text is on the ad's web page, embedded as JSON. Fetch
+`https://www.willhaben.at/iad/object?adId=<id>` (follows a redirect, no token
+needed), read the `<script id="__NEXT_DATA__">` JSON, and take
+`props.pageProps.advertDetails.attributes.attribute[name=DESCRIPTION].values[0]`.
+
+## Seller
+
+The seller behind an ad comes from `tmsData`: `seller_id` and
+`is_private` ("true"/"false"). With that:
+
+| Who | Endpoint | Gives |
+|---|---|---|
+| private | `GET publicapi.willhaben.at/userprofile/trust-signals/<sellerId>` (no token) | `averageRating`, `numberOfRatings`, `replyTime` |
+| private | `GET ad-search.willhaben.at/restapi/v2/sellerprofile/<sellerId>/5/profile` (token) | `sellerProfile.registerDate` (member since), name, `activeAdCount` |
+| dealer | `GET api.willhaben.at/restapi/v2/dealerprofile/<orgId>` (token) | `organisation.orgName`, `created`, `addressDto`, `contactDto` |
+
+The token-gated ones use the same `x-wh-application-token` as the detail API. A
+seller's other ads are behind the `furtherAds` context link in the ad's
+`SELLER_DETAILS_*` widget.

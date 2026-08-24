@@ -141,6 +141,35 @@ Starting willhaben-mcp server on http://127.0.0.1:8000/mcp
 Point your MCP client at that URL. Host, port and path live at the top of
 `main.py`.
 
+## Use it from Claude Desktop
+
+Claude Desktop launches MCP servers over stdio, so bridge to this HTTP server
+with [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) (needs
+[Node.js](https://nodejs.org)):
+
+1. Start the server (`python main.py`) and leave it running.
+2. In Claude Desktop open **Settings > Developer > Edit Config**; that reveals
+   `claude_desktop_config.json`. Open it and add the `willhaben` entry:
+
+   ```json
+   {
+     "mcpServers": {
+       "willhaben": {
+         "command": "cmd",
+         "args": ["/c", "npx", "-y", "mcp-remote", "http://127.0.0.1:8000/mcp"]
+       }
+     }
+   }
+   ```
+
+   On macOS/Linux drop the Windows wrapper: use `"command": "npx"` with
+   `"args": ["-y", "mcp-remote", "http://127.0.0.1:8000/mcp"]`.
+3. Save the file and **restart Claude Desktop**. The willhaben tools then appear
+   in the chat's tools menu.
+
+To stop confirming every call, open **Settings > Connectors > willhaben** and set
+the tools' dropdown on the right to **Always allow**.
+
 ## Notes
 
 - The detail API only speaks HTTP/2 and needs an `x-wh-application-token`. That

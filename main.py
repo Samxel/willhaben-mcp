@@ -5,6 +5,7 @@ import asyncio
 import uuid
 import json
 import re
+import html
 import unicodedata
 from pathlib import Path
 from datetime import datetime, timezone
@@ -50,7 +51,7 @@ mcp = MCPServer("willhaben-mcp")
 client = httpx.AsyncClient(http2=True)
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s: %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
 
 MAX_ROWS = 50
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
@@ -532,7 +533,15 @@ async def get_ad_detail(ad_id: Union[str, int]) -> dict:
     Search results only carry a truncated description, so come here whenever you
     need the full text, the complete attributes, or every detail of one ad (and
     ``get_ad_images`` when you need to see it)."""
-    return _summarize_ad_detail(await _fetch_detail(ad_id))
+    summary = _summarize_ad_detail(await _fetch_detail(ad_id))
+    # the detail API truncates long descriptions near 600 chars; recover the full
+    # text from the web page only when it looks cut off.
+    current = summary.get("description") or ""
+    if len(current) >= DESCRIPTION_CAP:
+        full = await _fetch_full_description(ad_id)
+        if full and len(full) > len(current):
+            summary["description"] = full
+    return summary
 
 
 _CONTENT_TYPE_FORMAT = {
@@ -544,8 +553,8 @@ _CONTENT_TYPE_FORMAT = {
 }
 
 
-async def _fetch_detail(ad_id: Union[str, int]) -> dict:
-    """GET the raw advert-detail JSON (shared by detail/image tools), refreshing
+async def _authed_get(url: str, *, params: Optional[dict] = None) -> httpx.Response:
+    """GET a token-gated willhaben endpoint (detail, seller, dealer), refreshing
     the server-issued app token once on a 401 (it expires)."""
     for attempt in range(2):
         headers = {
@@ -556,14 +565,49 @@ async def _fetch_detail(ad_id: Union[str, int]) -> dict:
             "x-wh-application-token": await _get_application_token(force_refresh=attempt > 0),
         }
         try:
-            response = await _get(f"{DETAIL_URL}/{ad_id}", headers=headers)
+            return await _get(url, params=params, headers=headers)
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 401 and attempt == 0:
-                logger.info("detail token expired -- refreshing and retrying")
+                logger.info("app token expired -- refreshing and retrying")
                 continue
             raise
-        return response.json()
     raise RuntimeError("unreachable")  # pragma: no cover
+
+
+async def _fetch_detail(ad_id: Union[str, int]) -> dict:
+    """GET the raw advert-detail JSON (shared by detail/image/seller tools)."""
+    return (await _authed_get(f"{DETAIL_URL}/{ad_id}")).json()
+
+
+DESCRIPTION_CAP = 580  # the mobile detail API truncates the description near 600 chars
+
+
+async def _fetch_full_description(ad_id: Union[str, int]) -> Optional[str]:
+    """The mobile detail API caps the description at ~600 chars. Pull the full,
+    clean text from the ad's web page (embedded __NEXT_DATA__); no token needed."""
+    try:
+        response = await client.get(
+            "https://www.willhaben.at/iad/object",
+            params={"adId": str(ad_id)},
+            headers={"user-agent": "Mozilla/5.0", "Accept": "text/html"},
+            follow_redirects=True,
+        )
+        response.raise_for_status()
+    except httpx.HTTPError:
+        return None
+    match = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', response.text, re.S)
+    if not match:
+        return None
+    try:
+        details = json.loads(match.group(1))["props"]["pageProps"]["advertDetails"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    by_name = {a.get("name"): a.get("values") or [] for a in details.get("attributes", {}).get("attribute", [])}
+    values = by_name.get("DESCRIPTION") or by_name.get("BODY_DYN")
+    if not values:
+        return None
+    text = re.sub(r"<br\s*/?>", "\n", values[0], flags=re.I)
+    return html.unescape(_TAG_RE.sub("", text)).strip()
 
 
 @mcp.tool(structured_output=False)
@@ -610,6 +654,62 @@ async def get_ad_images(ad_id: Union[str, int], max_images: int = 4) -> list:
     title = detail.get("description") or f"ad {ad_id}"
     header = f'{len(pictures)} image(s) for "{title}" (ad {ad_id}):'
     return [header, *pictures]
+
+
+SELLER_TRUST_URL = "https://publicapi.willhaben.at/userprofile/trust-signals"
+SELLER_PROFILE_URL = "https://ad-search.willhaben.at/restapi/v2/sellerprofile"
+DEALER_PROFILE_URL = "https://api.willhaben.at/restapi/v2/dealerprofile"
+
+
+@mcp.tool()
+async def get_ad_seller(ad_id: Union[str, int]) -> dict:
+    """Look up the seller behind an ad: name, private vs dealer, rating and reply
+    time (private sellers), the member-since / created date, and location.
+
+    Use it for a plausibility or trust check the ad itself does not answer -- how
+    long the account has existed, how it is rated, whether it is a dealer.
+    """
+    detail = await _fetch_detail(ad_id)
+    tms = detail.get("taggingData", {}).get("tmsDataValues", {}).get("tmsData", {})
+    seller_id = tms.get("seller_id")
+    name = tms.get("seller_name")
+    if not seller_id:
+        return {"error": "no seller id on this ad", "name": name}
+
+    if tms.get("is_private") == "true":
+        result: dict = {"id": seller_id, "name": name, "type": "private"}
+        try:  # rating / trust signals (no token needed)
+            trust = (await _get(f"{SELLER_TRUST_URL}/{seller_id}")).json()
+            result.update({
+                "rating": trust.get("averageRating"),
+                "rating_count": trust.get("numberOfRatings"),
+                "rating_note": trust.get("numberOfRatingsText"),
+                "reply_time": trust.get("replyTime"),
+            })
+        except httpx.HTTPError:
+            pass
+        try:  # profile (member since); token-gated
+            sp = (await _authed_get(f"{SELLER_PROFILE_URL}/{seller_id}/5/profile")).json().get("sellerProfile", {})
+            result["member_since"] = sp.get("registerDate")
+            result["active_ads"] = sp.get("activeAdCount")
+            result["location"] = sp.get("location")
+        except httpx.HTTPError:
+            pass
+        return result
+
+    result = {"id": seller_id, "name": name, "type": "dealer"}
+    try:  # dealer / organisation; token-gated
+        org = (await _authed_get(f"{DEALER_PROFILE_URL}/{seller_id}")).json().get("organisation", {})
+        addr = org.get("addressDto") or {}
+        result.update({
+            "name": org.get("displayName") or org.get("orgName") or name,
+            "since": org.get("created"),
+            "org_type": org.get("orgTypeDescription"),
+            "location": " ".join(filter(None, [addr.get("addressPostcode"), addr.get("addressTown")])) or None,
+        })
+    except httpx.HTTPError:
+        pass
+    return result
 
 
 @mcp.tool()

@@ -34,6 +34,30 @@ client = httpx.AsyncClient(http2=True)
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s: %(message)s')
 
+MAX_ROWS = 50
+RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+MAX_RETRIES = 3
+
+
+async def _get(url: str, *, params: Optional[dict] = None, headers: Optional[dict] = None) -> httpx.Response:
+    """GET a willhaben endpoint, retrying transient failures (timeouts, 429,
+    5xx) with exponential backoff. Other 4xx errors fail immediately."""
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            response = await client.get(url, params=params, headers=headers)
+        except httpx.TransportError:
+            if attempt == MAX_RETRIES:
+                raise
+        else:
+            if response.status_code not in RETRYABLE_STATUS or attempt == MAX_RETRIES:
+                response.raise_for_status()
+                return response
+        delay = 0.5 * (2 ** attempt)
+        logger.warning("Request to '%s' failed (attempt %d/%d), retrying in %.1fs",
+                        url, attempt + 1, MAX_RETRIES + 1, delay)
+        await asyncio.sleep(delay)
+
+
 SortBy = Literal["actuality", "nearest", "price_asc", "price_desc", "relevance"]
 Bundesland = Literal["burgenland", "kaernten", "niederoesterreich", "oberoesterreich",
                      "salzburg", "steiermark", "tirol", "vorarlberg", "wien", "andere_laender"]
@@ -358,6 +382,7 @@ async def search_willhaben(
     """
     if not keyword and category is None:
         raise ValueError("Provide 'keyword' and/or 'category'.")
+    rows = max(1, min(int(rows), MAX_ROWS))
 
     params: dict = {
         "sfId": str(uuid.uuid4()),
@@ -421,9 +446,8 @@ async def search_willhaben(
         "Content-Type": "application/json",
     }
     logger.debug("Requesting: '%s'\nWith parameters: %s", BASE_URL, params)
-    response = await client.get(BASE_URL, params=params, headers=headers)
+    response = await _get(BASE_URL, params=params, headers=headers)
     logger.debug("Response: %d", response.status_code)
-    response.raise_for_status()
     data = response.json()
     ads = data.get("advertSummaryList", {}).get("advertSummary", [])
     return {
@@ -451,9 +475,8 @@ async def get_ad_detail(ad_id: Union[str, int]) -> dict:
         "x-wh-application-token": WH_APPLICATION_TOKEN,
     }
     logger.debug("Requesting detail: '%s'", url)
-    response = await client.get(url, headers=headers)
+    response = await _get(url, headers=headers)
     logger.debug("Response: %d", response.status_code)
-    response.raise_for_status()
     return _summarize_ad_detail(response.json())
 
 
@@ -475,8 +498,7 @@ async def _fetch_detail(ad_id: Union[str, int]) -> dict:
         "x-wh-security-version": WH_SECURITY_VERSION,
         "x-wh-application-token": WH_APPLICATION_TOKEN,
     }
-    response = await client.get(f"{DETAIL_URL}/{ad_id}", headers=headers)
-    response.raise_for_status()
+    response = await _get(f"{DETAIL_URL}/{ad_id}", headers=headers)
     return response.json()
 
 
@@ -719,8 +741,7 @@ async def _fetch_car_models(make_id: str) -> dict:
         "x-wh-visitor-id": str(uuid.uuid4()),
         "Accept": "application/json",
     }
-    response = await client.get(AUTO_NAV_URL, params=params, headers=headers)
-    response.raise_for_status()
+    response = await _get(AUTO_NAV_URL, params=params, headers=headers)
     return _car_models_from_response(response.json())
 
 
@@ -828,6 +849,7 @@ async def search_autos(
 
     Names and ids for the enumerated filters are accepted interchangeably.
     """
+    rows = max(1, min(int(rows), MAX_ROWS))
     params: dict = {
         "sfId": str(uuid.uuid4()),
         "isLog": "true",
@@ -883,8 +905,7 @@ async def search_autos(
         "Content-Type": "application/json",
     }
     logger.debug("Requesting autos: %s params=%s", AUTO_RESULTS_URL, params)
-    response = await client.get(AUTO_RESULTS_URL, params=params, headers=headers)
-    response.raise_for_status()
+    response = await _get(AUTO_RESULTS_URL, params=params, headers=headers)
     data = response.json()
     ads = data.get("advertSummaryList", {}).get("advertSummary", [])
     return {
@@ -1061,6 +1082,7 @@ async def search_immobilien(
     Filters that don't apply to the chosen type are ignored by willhaben.
     """
     catid = _resolve_immo_type(property_type)
+    rows = max(1, min(int(rows), MAX_ROWS))
     params: dict = {
         "sfId": str(uuid.uuid4()),
         "isLog": "true",
@@ -1107,8 +1129,7 @@ async def search_immobilien(
     }
     url = f"{IMMO_RESULTS_BASE}/{IMMO_SEARCH_PREFIX}/{catid}"
     logger.debug("Requesting immobilien: %s params=%s", url, params)
-    response = await client.get(url, params=params, headers=headers)
-    response.raise_for_status()
+    response = await _get(url, params=params, headers=headers)
     data = response.json()
     ads = data.get("advertSummaryList", {}).get("advertSummary", [])
     return {

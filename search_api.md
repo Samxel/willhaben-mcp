@@ -273,9 +273,26 @@ GET https://publicapi.willhaben.at/atdetail/v1/{adId}
 
 ### About the token
 
-`x-wh-application-token` is a static, app-level signing token. It is **not** bound
-to a user, visitor id or date, so a captured token can be reused as a constant.
-If it ever stops working (`401`), sniff a fresh one from the app's request headers.
+`x-wh-application-token` is **issued by willhaben** and validated (a wrong value
+gives `401`). The app gets it from the `application-data` endpoint and reuses it
+for ~30 days:
+
+```
+POST https://app-aggregator.willhaben.at/api/v1/application-data
+{"applicationTokenRequest": {"organization": "...", "salt": "...",
+                             "signature": "...", "timestamp": "..."}}
+-> {"applicationToken": {"value": "...", "expireInSeconds": 2592000}}
+```
+
+`signature` is an HMAC over `organization + salt + timestamp` made with a key
+baked into the app, so a fresh one can't be computed off-device. But the server
+does **not** check the timestamp's age, so **replaying one captured signed request
+keeps returning fresh 30-day tokens** -- that is how `main.py` auto-refreshes,
+without hardcoding a token. Re-capture the signed `applicationTokenRequest` from
+the app only if willhaben rotates the signing key (the stored one then `401`s).
+
+`x-wh-date` and `x-wh-security-version` must be present on the detail request but
+their values are not checked.
 
 ## Response
 

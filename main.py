@@ -14,14 +14,32 @@ import logging
 BASE_URL = "https://ad-search.willhaben.at/restapi/v2/search/atz/seo/kaufen-und-verkaufen/marktplatz"
 DETAIL_URL = "https://publicapi.willhaben.at/atdetail/v1"
 ATTRIBUTE_OPTIONS_URL = "https://app-aggregator.willhaben.at/api/v1/search/attribute-options"
+APPLICATION_DATA_URL = "https://app-aggregator.willhaben.at/api/v1/application-data"
 
 WH_CLIENT = "api@tailored-apps.com;willhabenapp;android;8.57.0;responsive_app"
-# The detail API is gated by a static, app-level signing token (over HTTP/2).
-# It is not bound to a user, visitor id or date -- only its presence is checked.
+
+# The detail API (HTTP/2) is gated by an `x-wh-application-token` that willhaben's
+# server ISSUES: the app POSTs `application-data` with a signed
+# `applicationTokenRequest` and gets back a token valid for 30 days. The
+# signature is an HMAC over (organization, salt, timestamp) made with a key baked
+# into the app -- we cannot compute a fresh one, but the server does not check the
+# timestamp's age, so replaying one captured signed request keeps minting fresh
+# 30-day tokens. So instead of hardcoding a token that expires, we store that
+# signed request and fetch a live token from it (see `_fetch_application_token`).
+#
+# HOW TO REFRESH IF WILLHABEN ROTATES THE SIGNING KEY (stored request -> 401):
+#   1. Run the app under an mitmproxy MITM with SSL-unpinning (see README/notes).
+#   2. Cold-start willhaben and find the first `POST .../api/v1/application-data`.
+#   3. Copy its JSON body's `applicationTokenRequest` object into WH_TOKEN_REQUEST
+#      below (organization, salt, signature, timestamp). That's the only part that
+#      needs the app; the token itself then comes from the server again.
 WH_SECURITY_VERSION = "20130527022532"
-WH_APPLICATION_TOKEN = (
-    "vUbhu3l/YLBUYicWNFRac/DbBJHKWh9rcP4UnOILHSe2tsCoQxZvldz2X7DlMRHwoR1Ol1dd1FMhm3YnWc60LUNy5x/E5d+24jJbqBFFAhA="
-)
+WH_TOKEN_REQUEST = {
+    "organization": "api@tailored-apps.com",
+    "salt": "_xzcrY0SjCsTS6Uo",
+    "signature": "3oC9/ga9Z7pIxTdx/sccKjmycnw=",
+    "timestamp": "2026-08-24T09:25:52+0200",
+}
 
 HOST = "127.0.0.1"
 PORT = 8000
@@ -56,6 +74,54 @@ async def _get(url: str, *, params: Optional[dict] = None, headers: Optional[dic
         logger.warning("Request to '%s' failed (attempt %d/%d), retrying in %.1fs",
                         url, attempt + 1, MAX_RETRIES + 1, delay)
         await asyncio.sleep(delay)
+
+
+# --- application token (for the detail API) --------------------------------
+# Fetched lazily from willhaben and cached; refreshed automatically on a 401.
+_app_token: Optional[str] = None
+_app_token_lock = asyncio.Lock()
+
+
+async def _fetch_application_token() -> str:
+    """Obtain a fresh 30-day ``x-wh-application-token`` from willhaben by replaying
+    the stored signed ``applicationTokenRequest`` (see WH_TOKEN_REQUEST)."""
+    headers = {
+        "Accept": "application/json",
+        "x-wh-client": WH_CLIENT,
+        "x-wh-visitor-id": str(uuid.uuid4()),
+    }
+    try:
+        response = await client.post(
+            APPLICATION_DATA_URL,
+            json={"applicationTokenRequest": WH_TOKEN_REQUEST},
+            headers=headers,
+        )
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"Could not reach willhaben to obtain an application token: {exc}") from exc
+    if response.status_code == 401:
+        raise RuntimeError(
+            "willhaben rejected the stored token-refresh credential (401). Its signing "
+            "key was most likely rotated -- capture a fresh applicationTokenRequest from "
+            "the app and update WH_TOKEN_REQUEST in main.py (see the comment there)."
+        )
+    response.raise_for_status()
+    token = (response.json().get("applicationToken") or {}).get("value")
+    if not token:
+        raise RuntimeError(
+            "willhaben returned no application token -- the application-data response "
+            "format may have changed."
+        )
+    logger.debug("Fetched a fresh willhaben application token")
+    return token
+
+
+async def _get_application_token(*, force_refresh: bool = False) -> str:
+    """Return the cached application token, fetching or refreshing it as needed."""
+    global _app_token
+    async with _app_token_lock:
+        if _app_token is None or force_refresh:
+            _app_token = await _fetch_application_token()
+    return _app_token
 
 
 SortBy = Literal["actuality", "nearest", "price_asc", "price_desc", "relevance"]
@@ -466,18 +532,7 @@ async def get_ad_detail(ad_id: Union[str, int]) -> dict:
     Search results only carry a truncated description, so come here whenever you
     need the full text, the complete attributes, or every detail of one ad (and
     ``get_ad_images`` when you need to see it)."""
-    url = f"{DETAIL_URL}/{ad_id}"
-    headers = {
-        "Accept": "application/json",
-        "x-wh-client": WH_CLIENT,
-        "x-wh-date": datetime.now(timezone.utc).isoformat(),
-        "x-wh-security-version": WH_SECURITY_VERSION,
-        "x-wh-application-token": WH_APPLICATION_TOKEN,
-    }
-    logger.debug("Requesting detail: '%s'", url)
-    response = await _get(url, headers=headers)
-    logger.debug("Response: %d", response.status_code)
-    return _summarize_ad_detail(response.json())
+    return _summarize_ad_detail(await _fetch_detail(ad_id))
 
 
 _CONTENT_TYPE_FORMAT = {
@@ -490,16 +545,25 @@ _CONTENT_TYPE_FORMAT = {
 
 
 async def _fetch_detail(ad_id: Union[str, int]) -> dict:
-    """GET the raw advert-detail JSON (shared by detail/image tools)."""
-    headers = {
-        "Accept": "application/json",
-        "x-wh-client": WH_CLIENT,
-        "x-wh-date": datetime.now(timezone.utc).isoformat(),
-        "x-wh-security-version": WH_SECURITY_VERSION,
-        "x-wh-application-token": WH_APPLICATION_TOKEN,
-    }
-    response = await _get(f"{DETAIL_URL}/{ad_id}", headers=headers)
-    return response.json()
+    """GET the raw advert-detail JSON (shared by detail/image tools), refreshing
+    the server-issued app token once on a 401 (it expires)."""
+    for attempt in range(2):
+        headers = {
+            "Accept": "application/json",
+            "x-wh-client": WH_CLIENT,
+            "x-wh-date": datetime.now(timezone.utc).isoformat(),
+            "x-wh-security-version": WH_SECURITY_VERSION,
+            "x-wh-application-token": await _get_application_token(force_refresh=attempt > 0),
+        }
+        try:
+            response = await _get(f"{DETAIL_URL}/{ad_id}", headers=headers)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 401 and attempt == 0:
+                logger.info("detail token expired -- refreshing and retrying")
+                continue
+            raise
+        return response.json()
+    raise RuntimeError("unreachable")  # pragma: no cover
 
 
 @mcp.tool(structured_output=False)

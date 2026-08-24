@@ -143,9 +143,12 @@ Point your MCP client at that URL. Host, port and path live at the top of
 
 ## Notes
 
-- The detail API is gated by a static app token and only speaks HTTP/2. Both are
-  handled in `main.py`. If willhaben rotates the token, grab a fresh one from the
-  app's request headers and replace `WH_APPLICATION_TOKEN`.
+- The detail API only speaks HTTP/2 and needs an `x-wh-application-token`. That
+  token is issued by willhaben (valid 30 days) in exchange for a signed request,
+  so `main.py` fetches a live token on demand and refreshes it automatically on a
+  401 -- no token to hand-edit. Only if willhaben rotates the signing key does the
+  stored `WH_TOKEN_REQUEST` stop working; the comment above it in `main.py`
+  explains how to capture a fresh one from the app.
 - Generated data lives under `data/`, one folder per vertical:
   `data/marktplatz/categories.json` (the ~3500-category tree),
   `data/auto-motor/filters.json` (car filters, options and makes) and

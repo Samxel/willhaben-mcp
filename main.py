@@ -649,6 +649,20 @@ async def search_willhaben(
     after the fetch, the tool pages through willhaben until it has ``rows``
     matches or has scanned 250 ads; ``scanned`` reports how far it got.
 
+    ``title_only`` does not remove accessories and spare parts: a case, a
+    mounting bracket or a replacement back cover legitimately carries the
+    product's exact name in its own title. Two things do, and they compose:
+
+    - ``price_from``. An accessory costs a fraction of the item, so a floor at
+      roughly 15-20% of the product's real price clears out nearly all of them
+      in one move, without you having to guess any vocabulary. Geizhals'
+      ``get_model_price_range`` gives you that number; a listing below that
+      floor is virtually never the product itself.
+    - ``exclude`` with words picked for *this* search -- "huelle", "case",
+      "rahmen", "backcover" for a phone; "halterung", "kabel", "wasserkuehler"
+      for a graphics card; and "kein" to catch titles that name the product
+      only to say they are not it ("SOYES XS15 Pro - kein iPhone 16 Pro").
+
     Every result carries ``status`` ("active" / "reserved" / "sold") and a
     ``reserved`` flag, read out of the title -- willhaben has no field for it
     and always reports an ad as active. ``hide_reserved=True`` drops them.

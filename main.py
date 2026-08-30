@@ -6,6 +6,7 @@ import uuid
 import json
 import re
 import html
+import functools
 import unicodedata
 from pathlib import Path
 from datetime import datetime, timezone
@@ -43,7 +44,7 @@ WH_TOKEN_REQUEST = {
 }
 
 HOST = "127.0.0.1"
-PORT = 8000
+PORT = 8010
 MCP_PATH = "/mcp"
 
 mcp = MCPServer("willhaben-mcp")
@@ -56,6 +57,44 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(mes
 MAX_ROWS = 50
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 MAX_RETRIES = 3
+
+
+class UpstreamError(RuntimeError):
+    """A willhaben failure, already phrased for the caller. Tools turn it into
+    ``{"error": ...}`` instead of leaking the internal url and an MDN link."""
+
+
+def _upstream_message(status: int, what: str) -> str:
+    """Phrase an HTTP failure in terms the caller can act on, without the
+    internal url and MDN link httpx puts in its own message."""
+    if status == 404:
+        return f"no {what} found -- wrong id, or the ad has been taken down"
+    if status == 400:
+        return f"willhaben rejected the {what} request (400); check the arguments you passed"
+    if status in (401, 403):
+        return (f"willhaben refused the {what} request ({status}) -- the application token "
+                f"could not be refreshed; see WH_TOKEN_REQUEST in main.py")
+    return f"willhaben failed on the {what} request (HTTP {status})"
+
+
+def _tool_errors(what: str):
+    """Return upstream failures as ``{"error": ...}`` rather than raising a raw
+    httpx error, so every tool fails the same readable way. ``what`` names the
+    thing being fetched, for the message."""
+    def decorator(fn):
+        @functools.wraps(fn)
+        async def wrapper(*args, **kwargs):
+            try:
+                return await fn(*args, **kwargs)
+            except UpstreamError as exc:
+                return {"error": str(exc)}
+            except httpx.HTTPStatusError as exc:
+                return {"error": _upstream_message(exc.response.status_code, what)}
+            except httpx.HTTPError as exc:
+                return {"error": f"could not reach willhaben for the {what} request "
+                                 f"({type(exc).__name__})"}
+        return wrapper
+    return decorator
 
 
 async def _get(url: str, *, params: Optional[dict] = None, headers: Optional[dict] = None) -> httpx.Response:
@@ -233,10 +272,42 @@ shoe_size_id = {
 }
 
 
+def _fold(s: str) -> str:
+    """Lowercase and strip accents, so "Grün" and "gruen" compare equal."""
+    return unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode().lower()
+
+
 def _norm(s: str) -> str:
     """Normalise a label for lookup: lowercase, strip accents, drop all spaces."""
-    s = unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode()
-    return "".join(s.lower().split())
+    return "".join(_fold(s).split())
+
+
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
+# Ads fuse series and model number ("RTX4070"); split those so a keyword written
+# with a space still matches, and the other way round.
+_FUSED_RE = re.compile(r"^([a-z]{2,4})(\d{3,5})$")
+
+
+def _tokens(text: str) -> set:
+    """Comparable word tokens of a title or keyword. Fused model codes are
+    replaced by their parts on both sides, so "RTX4070" and "RTX 4070" match
+    each other whichever one the keyword uses."""
+    out = set()
+    for token in _TOKEN_RE.findall(_fold(text or "")):
+        fused = _FUSED_RE.match(token)
+        out.update(fused.groups() if fused else [token])
+    return out
+
+
+def _check_ranges(*bounds) -> None:
+    """Reject an inverted range instead of letting willhaben drop the filter and
+    quietly answer with everything."""
+    for name, low, high in bounds:
+        if low is not None and high is not None and low > high:
+            raise ValueError(
+                f"{name}_from ({low}) is above {name}_to ({high}) -- an inverted range is "
+                f"ignored by willhaben and would silently return unfiltered results. Swap them."
+            )
 
 
 def _load_categories() -> list[dict]:
@@ -330,18 +401,75 @@ def _first_image_url(ad: dict) -> Optional[str]:
     return None
 
 
+def _to_float(value) -> Optional[float]:
+    try:
+        return float(str(value).replace(",", "."))
+    except (TypeError, ValueError):
+        return None
+
+
+_PRICE_IN_TEXT_RE = re.compile(r"(\d[\d.\s]*)(?:,(\d{1,2}))?")
+
+
+def _price_amount(attr: dict) -> Optional[float]:
+    """The numeric price. Marketplace and car ads carry ``PRICE/AMOUNT``;
+    property ads only have ``PRICE`` (or the rent), so fall back through those
+    and finally parse the display string -- otherwise sorting and price-per-m2
+    are impossible on a value that is plainly there."""
+    for key in ("PRICE/AMOUNT", "PRICE", "RENT/PER_MONTH_LETTINGS", "PRICE/SALES_PRICE"):
+        amount = _to_float(attr.get(key))
+        if amount is not None:
+            return amount
+    match = _PRICE_IN_TEXT_RE.search(str(attr.get("PRICE_FOR_DISPLAY") or ""))
+    if not match:
+        return None
+    return _to_float(f"{re.sub(r'[.\s]', '', match[1])}.{match[2] or 0}")
+
+
+# willhaben has no reserved/sold flag in the API -- sellers write it into the
+# title, in every bracket style there is: "(reserviert)", "*reserviert*",
+# "RESERVIERT - ...". Only those set-apart forms count, so a title that merely
+# talks about reserving ("Artikel werden nicht reserviert") is not a match.
+def _marker_re(words: str) -> re.Pattern:
+    return re.compile(
+        # bracketed or leading, in any case ...
+        rf"(?i:(?:^\s*|[(\[*/|-]\s*)(?:{words})\b|\b(?:{words})\s*[)\]*])"
+        # ... or shouted anywhere in the title
+        rf"|\b(?:{words.upper()})\b"
+    )
+
+
+_RESERVED_RE = _marker_re("reserviert|reserved|vergeben")
+_SOLD_RE = _marker_re("verkauft|sold|abgeholt")
+
+
+def _ad_status(title: Optional[str], ad: Optional[dict] = None) -> tuple[str, bool]:
+    """``(status, reserved)`` for an ad. willhaben only ever reports "active",
+    so the real state comes from the marker sellers put in the title."""
+    status = ((ad or {}).get("advertStatus") or {}).get("id") or "active"
+    text = title or ""
+    if status == "active" and _SOLD_RE.search(text):
+        status = "sold"
+    elif status == "active" and _RESERVED_RE.search(text):
+        status = "reserved"
+    return status, status == "reserved"
+
+
 def _summarize_ad(ad: dict) -> dict:
     """Reduce a full willhaben advert to the handful of fields that matter
     for an AI response instead of returning the whole raw object."""
     attr = _attributes_to_dict(ad)
     seo_url = attr.get("SEO_URL")
-    price_amount = attr.get("PRICE/AMOUNT")
+    title = attr.get("HEADING") or ad.get("description")
+    status, reserved = _ad_status(title, ad)
     return {
         "id": ad.get("id"),
-        "title": attr.get("HEADING") or ad.get("description"),
+        "title": title,
         "description": attr.get("BODY_DYN"),
         "price": attr.get("PRICE_FOR_DISPLAY"),
-        "price_amount": float(price_amount) if price_amount is not None else None,
+        "price_amount": _price_amount(attr),
+        "status": status,
+        "reserved": reserved,
         "seller": "privat" if attr.get("ISPRIVATE") == "1" else "haendler",
         "seller_name": attr.get("ORGNAME") or attr.get("CONTACT/NAME"),
         "location": attr.get("LOCATION"),
@@ -375,13 +503,25 @@ def _summarize_ad_detail(detail: dict) -> dict:
     descriptions = [w.get("teaser", "") for w in widgets if w.get("type") == "PARAGRAPHED_TEXT"]
     description = max(descriptions, key=len) if descriptions else None
 
+    attributes = {kv.get("name"): kv.get("value") for kv in key_values}
+    title = detail.get("description")
+    status, reserved = _ad_status(title, detail)
+    # "Übergabe" is the only place shipping vs pickup is stated, and it is not
+    # in the search response -- paylivery is a payment method, not an answer.
+    handover = [h.strip() for h in str(attributes.get("Übergabe") or "").split(",") if h.strip()]
     exact_price = tms.get("exact_price")
     return {
         "id": detail.get("adId"),
-        "title": detail.get("description"),
+        "title": title,
         "description": description or None,
         "price": title_price.get("formattedPrice"),
-        "price_amount": float(exact_price) if exact_price is not None else None,
+        "price_amount": _to_float(exact_price),
+        "status": status,
+        "reserved": reserved,
+        "condition": attributes.get("Zustand"),
+        "handover": handover,
+        "ships": any("versand" in h.lower() for h in handover),
+        "pickup_only": bool(handover) and not any("versand" in h.lower() for h in handover),
         "seller": "privat" if tms.get("is_private") == "true" else "haendler",
         "seller_name": tms.get("seller_name"),
         "paylivery": detail.get("payliveryEnabled"),
@@ -390,14 +530,32 @@ def _summarize_ad_detail(detail: dict) -> dict:
         "state": tms.get("region_level_2"),
         "category": [kv.get("categoryName") for kv in
                      _widget(widgets, "CATEGORIES").get("categoryPath", {}).get("categoryEntryList", [])],
-        "attributes": {kv.get("name"): kv.get("value") for kv in key_values},
+        "attributes": attributes,
         "published": tms.get("publish_date"),
         "delivery": title_price.get("deliveryCosts"),
         "image_urls": [img.get("referenceImageUrl") for img in images],
     }
 
 
+# A keyword or exclude filter is applied here, not by willhaben, so pages are
+# pulled until enough matches are collected -- bounded, to stay polite.
+FILTER_MAX_SCAN = 250
+
+
+def _pagination(rows_found, scanned_to: int, returned: int) -> dict:
+    """Where the caller stands in the result set, so paging can be stopped on a
+    signal instead of on a repeated page."""
+    exhausted = rows_found is not None and scanned_to >= rows_found
+    return {
+        "rows_found": rows_found,
+        "rows_returned": returned,
+        "next_offset": scanned_to,
+        "has_more": not exhausted,
+    }
+
+
 @mcp.tool()
+@_tool_errors("search")
 async def search_willhaben(
     keyword: Optional[str] = None,
     *,
@@ -414,6 +572,9 @@ async def search_willhaben(
     price_from: Optional[float] = None,
     price_to: Optional[float] = None,
     paylivery: Optional[bool] = None,
+    title_only: bool = False,
+    exclude: Optional[list[str]] = None,
+    hide_reserved: bool = False,
     last_48h: bool = False,
     rows: int = 4,
     offset: int = 0,
@@ -446,10 +607,41 @@ async def search_willhaben(
 
     To filter by brand, first resolve it with ``search_brands`` and pass the
     returned id(s) via the ``brand`` parameter.
+
+    willhaben matches ``keyword`` against the **whole ad text**, so a search for
+    "RTX 4070" also returns mounting brackets, cables and ads that merely
+    mention the card -- and with ``sort_by="price_asc"`` exactly that junk takes
+    the top spots. Two filters fix it, both applied here over the ads willhaben
+    returns:
+
+    - ``title_only=True``: keep only ads whose **title** contains every word of
+      ``keyword`` ("RTX4070" and "RTX 4070" match each other).
+    - ``exclude``: drop ads whose title contains any of these words, e.g.
+      ``["verpackung", "ovp", "halterung", "kabel"]``. Title only, so an ad that
+      just mentions the word in its description is kept.
+
+    Use them whenever you are hunting for a specific product. Because they run
+    after the fetch, the tool pages through willhaben until it has ``rows``
+    matches or has scanned 250 ads; ``scanned`` reports how far it got.
+
+    Every result carries ``status`` ("active" / "reserved" / "sold") and a
+    ``reserved`` flag, read out of the title -- willhaben has no field for it
+    and always reports an ad as active. ``hide_reserved=True`` drops them.
+    Paging: ``next_offset`` is where to continue and ``has_more`` says whether
+    anything is left, so you do not have to guess when the catalogue is
+    exhausted.
+
+    Note that whether a seller ships is **not** in the search response
+    (``paylivery`` is a payment method, not shipping). ``get_ad_detail`` has it
+    as ``handover`` / ``ships`` / ``pickup_only``.
     """
     if not keyword and category is None:
         raise ValueError("Provide 'keyword' and/or 'category'.")
+    _check_ranges(("price", price_from, price_to))
     rows = max(1, min(int(rows), MAX_ROWS))
+    wanted = _tokens(keyword) if (title_only and keyword) else set()
+    excluded = [_fold(term) for term in (exclude or []) if str(term).strip()]
+    post_filtered = bool(wanted or excluded or hide_reserved)
 
     params: dict = {
         "sfId": str(uuid.uuid4()),
@@ -512,19 +704,46 @@ async def search_willhaben(
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
-    logger.debug("Requesting: '%s'\nWith parameters: %s", BASE_URL, params)
-    response = await _get(BASE_URL, params=params, headers=headers)
-    logger.debug("Response: %d", response.status_code)
-    data = response.json()
-    ads = data.get("advertSummaryList", {}).get("advertSummary", [])
-    return {
-        "rows_found": data.get("rowsFound"),
-        "rows_returned": data.get("rowsReturned"),
-        "results": [_summarize_ad(ad) for ad in ads],
-    }
+    def keep(ad: dict) -> bool:
+        title = _fold(ad["title"] or "")
+        if wanted and not wanted <= _tokens(title):
+            return False
+        if any(term in title for term in excluded):
+            return False
+        return not (hide_reserved and ad["status"] != "active")
+
+    results: list = []
+    cursor, scanned, rows_found = offset, 0, None
+    while True:
+        params["rows"] = MAX_ROWS if post_filtered else rows
+        params["offset"] = cursor
+        logger.debug("Requesting: '%s'\nWith parameters: %s", BASE_URL, params)
+        response = await _get(BASE_URL, params=params, headers=headers)
+        logger.debug("Response: %d", response.status_code)
+        data = response.json()
+        rows_found = data.get("rowsFound")
+        ads = data.get("advertSummaryList", {}).get("advertSummary", [])
+        for ad in ads:
+            cursor += 1
+            scanned += 1
+            summary = _summarize_ad(ad)
+            if keep(summary):
+                results.append(summary)
+                if len(results) >= rows:
+                    break
+        if not post_filtered or len(results) >= rows or not ads:
+            break
+        if scanned >= FILTER_MAX_SCAN or (rows_found is not None and cursor >= rows_found):
+            break
+
+    result = {**_pagination(rows_found, cursor, len(results)), "results": results}
+    if post_filtered:
+        result["scanned"] = scanned
+    return result
 
 
 @mcp.tool()
+@_tool_errors("ad")
 async def get_ad_detail(ad_id: Union[str, int]) -> dict:
     """Fetch the full detail of a single willhaben advert by its id, including
     the complete (untruncated) description, all images, itemised attributes and
@@ -532,7 +751,14 @@ async def get_ad_detail(ad_id: Union[str, int]) -> dict:
 
     Search results only carry a truncated description, so come here whenever you
     need the full text, the complete attributes, or every detail of one ad (and
-    ``get_ad_images`` when you need to see it)."""
+    ``get_ad_images`` when you need to see it).
+
+    This is also the only place shipping is stated: ``handover`` lists what the
+    seller offers ("Selbstabholung", "Versand"), with ``ships`` and
+    ``pickup_only`` as the ready-made booleans -- ``paylivery`` in the search is
+    a payment method and says nothing about delivery. ``status`` /
+    ``reserved`` come from the title marker, the only place willhaben records
+    that an item is already spoken for."""
     summary = _summarize_ad_detail(await _fetch_detail(ad_id))
     # the detail API truncates long descriptions near 600 chars; recover the full
     # text from the web page only when it looks cut off.
@@ -628,7 +854,12 @@ async def get_ad_images(ad_id: Union[str, int], max_images: int = 4) -> list:
     like, look at it.
     """
     max_images = max(1, min(int(max_images), 10))
-    detail = await _fetch_detail(ad_id)
+    try:
+        detail = await _fetch_detail(ad_id)
+    except httpx.HTTPStatusError as exc:
+        return [_upstream_message(exc.response.status_code, "ad")]
+    except httpx.HTTPError as exc:
+        return [f"could not reach willhaben for ad {ad_id} ({type(exc).__name__})"]
     images = _widget(detail.get("widgets", []), "PICTURE_SLIDER").get("advertImageList", [])
     urls = [img.get("referenceImageUrl") for img in images if img.get("referenceImageUrl")]
     urls = urls[:max_images]
@@ -662,6 +893,7 @@ DEALER_PROFILE_URL = "https://api.willhaben.at/restapi/v2/dealerprofile"
 
 
 @mcp.tool()
+@_tool_errors("seller")
 async def get_ad_seller(ad_id: Union[str, int]) -> dict:
     """Look up the seller behind an ad: name, private vs dealer, rating and reply
     time (private sellers), the member-since / created date, and location.
@@ -752,6 +984,7 @@ _TAG_RE = re.compile(r"<[^>]+>")
 
 
 @mcp.tool()
+@_tool_errors("brand")
 async def search_brands(
     category: Union[int, str],
     term: str = "",
@@ -767,7 +1000,8 @@ async def search_brands(
     - ``term``: optional search string for the brand name.
 
     Returns ``{count, brands: [{id, label}]}``. Pass the ``id`` back as
-    ``brand`` to search_willhaben.
+    ``brand`` to search_willhaben. Brand ids are strings, category ids ints --
+    both parameters accept either.
     """
     catid = _resolve_category(category)
     params = {
@@ -931,11 +1165,17 @@ async def _resolve_car_model(model: Union[int, str], make_id: Optional[str]) -> 
     return mid
 
 
+KW_TO_PS = 1.35962
+
+
 def _summarize_car(ad: dict) -> dict:
     """Like :func:`_summarize_ad`, plus the car-specific fields that matter."""
     result = _summarize_ad(ad)
     attr = _attributes_to_dict(ad)
     mileage = attr.get("MILEAGE")
+    # ENGINE/EFFECT is kW, the same unit the power_from/power_to filters take --
+    # ads and buyers talk in PS, so give both rather than one mislabelled number.
+    power_kw = _to_float(attr.get("ENGINE/EFFECT"))
     result.update({
         "make": attr.get("CAR_MODEL/MAKE"),
         "model": attr.get("CAR_MODEL/MODEL"),
@@ -944,7 +1184,8 @@ def _summarize_car(ad: dict) -> dict:
         "mileage_km": int(mileage) if mileage not in (None, "") else None,
         "fuel": attr.get("ENGINE/FUEL_RESOLVED"),
         "transmission": attr.get("TRANSMISSION_RESOLVED"),
-        "power_ps": attr.get("ENGINE/EFFECT"),
+        "power_kw": int(power_kw) if power_kw is not None else None,
+        "power_ps": round(power_kw * KW_TO_PS) if power_kw is not None else None,
         "condition": attr.get("CONDITION_RESOLVED"),
         "owners": attr.get("NO_OF_OWNERS"),
     })
@@ -952,6 +1193,7 @@ def _summarize_car(ad: dict) -> dict:
 
 
 @mcp.tool()
+@_tool_errors("car search")
 async def search_autos(
     make: Optional[Union[int, str]] = None,
     model: Optional[Union[int, str]] = None,
@@ -1008,11 +1250,22 @@ async def search_autos(
     - ``dealer``: Händler or Privat.
     - ``equipment``: one or more equipment features (e.g. "Sitzheizung vorne").
     - ranges: ``price_from/to`` (EUR), ``year_from/to`` (first registration),
-      ``mileage_from/to`` (km), ``power_from/to`` (kW).
+      ``mileage_from/to`` (km), ``power_from/to`` (**kW**, not PS -- 150 PS is
+      110 kW).
     - ``warranty`` / ``condition_report`` (Pickerl §57a) toggles.
 
-    Names and ids for the enumerated filters are accepted interchangeably.
+    Names and ids for the enumerated filters are accepted interchangeably, and
+    an inverted range (``price_from`` above ``price_to``) is rejected rather
+    than silently ignored by willhaben.
+
+    Each result gives engine power as both ``power_kw`` and ``power_ps``, so a
+    comparison against the "150 PS" in an ad title and against the kW-based
+    ``power_from``/``power_to`` filters both work without converting anything.
+    Paging: ``next_offset`` and ``has_more`` tell you when the list is
+    exhausted.
     """
+    _check_ranges(("price", price_from, price_to), ("year", year_from, year_to),
+                  ("mileage", mileage_from, mileage_to), ("power", power_from, power_to))
     rows = max(1, min(int(rows), MAX_ROWS))
     params: dict = {
         "sfId": str(uuid.uuid4()),
@@ -1072,11 +1325,8 @@ async def search_autos(
     response = await _get(AUTO_RESULTS_URL, params=params, headers=headers)
     data = response.json()
     ads = data.get("advertSummaryList", {}).get("advertSummary", [])
-    return {
-        "rows_found": data.get("rowsFound"),
-        "rows_returned": data.get("rowsReturned"),
-        "results": [_summarize_car(ad) for ad in ads],
-    }
+    return {**_pagination(data.get("rowsFound"), offset + len(ads), len(ads)),
+            "results": [_summarize_car(ad) for ad in ads]}
 
 
 @mcp.tool()
@@ -1197,16 +1447,25 @@ def _summarize_immo(ad: dict) -> dict:
     """Like :func:`_summarize_ad`, plus the property-specific fields."""
     result = _summarize_ad(ad)
     attr = _attributes_to_dict(ad)
+    living = _to_float(attr.get("ESTATE_SIZE/LIVING_AREA") or attr.get("ESTATE_SIZE"))
+    price_per_m2 = _to_float(attr.get("PRICE/SQUARE_METER"))
+    if price_per_m2 is None and living and result["price_amount"]:
+        price_per_m2 = round(result["price_amount"] / living, 2)
     result.update({
         "property_type": attr.get("PROPERTY_TYPE"),
-        "living_area_m2": attr.get("ESTATE_SIZE/LIVING_AREA") or attr.get("ESTATE_SIZE"),
-        "plot_area_m2": attr.get("PLOT/AREA"),
+        "living_area_m2": living,
+        "plot_area_m2": _to_float(attr.get("PLOT/AREA")),
         "rooms": attr.get("NUMBER_OF_ROOMS") or attr.get("NO_OF_ROOMS"),
+        "price_per_m2": round(price_per_m2, 2) if price_per_m2 is not None else None,
+        "floor": attr.get("FLOOR"),
+        "district": attr.get("DISTRICT"),
+        "address": attr.get("ADDRESS"),
     })
     return result
 
 
 @mcp.tool()
+@_tool_errors("property search")
 async def search_immobilien(
     property_type: Union[int, str] = "Alle Immobilien",
     *,
@@ -1243,9 +1502,19 @@ async def search_immobilien(
       ``area_from/to`` (living area m²), ``plot_from/to`` (plot area m²).
     - ``area``: federal state (region).
 
-    Filters that don't apply to the chosen type are ignored by willhaben.
+    Filters that don't apply to the chosen type are ignored by willhaben, but an
+    inverted range (``price_from`` above ``price_to``) is rejected here rather
+    than silently dropped.
+
+    Results carry the numeric ``price_amount`` and ``price_per_m2`` next to the
+    formatted ``price``, so listings can be sorted and compared without parsing
+    the string, plus ``living_area_m2`` / ``plot_area_m2`` / ``rooms`` /
+    ``floor`` / ``district`` / ``address``. Paging: ``next_offset`` and
+    ``has_more`` tell you when the list is exhausted.
     """
     catid = _resolve_immo_type(property_type)
+    _check_ranges(("price", price_from, price_to), ("area", area_from, area_to),
+                  ("plot", plot_from, plot_to))
     rows = max(1, min(int(rows), MAX_ROWS))
     params: dict = {
         "sfId": str(uuid.uuid4()),
@@ -1298,8 +1567,7 @@ async def search_immobilien(
     ads = data.get("advertSummaryList", {}).get("advertSummary", [])
     return {
         "property_type": IMMO_TYPES.get(int(catid)),
-        "rows_found": data.get("rowsFound"),
-        "rows_returned": data.get("rowsReturned"),
+        **_pagination(data.get("rowsFound"), offset + len(ads), len(ads)),
         "results": [_summarize_immo(ad) for ad in ads],
     }
 

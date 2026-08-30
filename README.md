@@ -45,12 +45,16 @@ Filters:
   e.g. `["verpackung", "ovp", "halterung"]`) — both applied here, paging on
   until `rows` matches are found or 250 ads have been scanned
 - `hide_reserved`
+- `handover` (`"versand"` / `"abholung"`) — shipping is not in willhaben's
+  search response at all, so this costs one detail request per surviving
+  candidate, capped at 40 and reported as `detail_lookups`
 - sorting and pagination
 
 Returns a trimmed list of hits, each with a numeric `price_amount`, a `status`
 ("active" / "reserved" / "sold") and a `reserved` flag read out of the title —
 willhaben itself always reports an ad as active. `next_offset` and `has_more`
-say where to continue and when the catalogue is exhausted.
+say where to continue and when the catalogue is exhausted (`next_offset` is
+`null` once it is).
 
 **`list_categories(query, parent_id)`**
 

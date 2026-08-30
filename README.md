@@ -43,7 +43,11 @@ Filters:
 - `title_only` (every keyword word must be in the **title**, not just anywhere
   in the ad text) and `exclude` (drop titles containing any of these words,
   e.g. `["verpackung", "ovp", "halterung"]`) — both applied here, paging on
-  until `rows` matches are found or 250 ads have been scanned
+  until `rows` matches are found or 250 ads have been scanned. Accessories and
+  spare parts carry the product's exact name in their own title, so `title_only`
+  won't remove them; a `price_from` floor at ~15–20% of the product's real price
+  (from Geizhals' `get_model_price_range`) clears out nearly all of them without
+  guessing any vocabulary
 - `hide_reserved`
 - `handover` (`"versand"` / `"abholung"`) — shipping is not in willhaben's
   search response at all, so this costs one detail request per surviving

@@ -150,6 +150,22 @@ data["advertSummaryList"]["advertSummary"]  # list of ads
 Each ad's `description` (attribute `BODY_DYN`) is **truncated** here. Use the
 Detail API to get the full text.
 
+### Quirks
+
+- `keyword` matches the **whole ad text**, and there is no title-only or phrase
+  parameter — the navigation response (`isNavigation=true`) lists every filter
+  the vertical has, and scoping the keyword is not among them. Title scoping and
+  exclusion have to be done on the results.
+- `advertStatus` is always `{"id": "active", ...}`, even for ads whose title
+  says `(reserviert)`. Reserved/sold is only ever a marker in the title string.
+- Marketplace and car ads carry `PRICE/AMOUNT`; **property ads do not**. Their
+  numeric price is in `PRICE` (and `RENT/PER_MONTH_LETTINGS` for lettings), with
+  `PRICE/SQUARE_METER` alongside it.
+- An inverted price range (`PRICE_FROM` above `PRICE_TO`) makes willhaben drop
+  the filter entirely and answer with everything, without an error.
+- Neither shipping nor `Übergabe` is in the search response; it only exists in
+  the detail's `KEY_VALUE_PAIRS_LIST`.
+
 # Auto & Motor API (cars)
 
 The used-car vertical (Gebrauchtwagen) uses the same search endpoints as the
@@ -195,8 +211,9 @@ Query keys with a slash (`CAR_MODEL/MAKE`, `ENGINE/FUEL`) are sent URL-encoded.
 
 Car ads carry extra attributes: `CAR_MODEL/MAKE`, `CAR_MODEL/MODEL`,
 `CAR_MODEL/MODEL_SPECIFICATION`, `YEAR_MODEL`, `MILEAGE`, `ENGINE/FUEL_RESOLVED`,
-`TRANSMISSION_RESOLVED`, `ENGINE/EFFECT` (PS), `CONDITION_RESOLVED`,
-`NO_OF_OWNERS`.
+`TRANSMISSION_RESOLVED`, `ENGINE/EFFECT` (**kW**, the same unit as the
+`ENGINEEFFECT_FROM`/`_TO` filters — a "150 PS" ad has `ENGINE/EFFECT: 110`),
+`CONDITION_RESOLVED`, `NO_OF_OWNERS`.
 
 # Immobilien API (real estate)
 

@@ -22,6 +22,9 @@ reverse-engineered mobile-app API and returning the important fields to the AI.
 - **From discovery to full inspection**  
   Find relevant ads, then retrieve **complete listing details, full descriptions, attributes, precise locations, and all available photos** for a deeper analysis.
 
+- **Search that stays on target**  
+  willhaben matches a keyword against the whole ad text, so "RTX 4070" also returns brackets, cables and unrelated cards — worst of all sorted by price. `title_only` and `exclude` filter that out and page on until enough real matches are found, and every hit says whether it is already **reserved**.
+
 ## Tools
 
 ### Marketplace
@@ -37,9 +40,17 @@ Filters:
 - `color`, `pattern`
 - `brand`
 - region, seller type, price range, PayLivery, last 48h
+- `title_only` (every keyword word must be in the **title**, not just anywhere
+  in the ad text) and `exclude` (drop titles containing any of these words,
+  e.g. `["verpackung", "ovp", "halterung"]`) — both applied here, paging on
+  until `rows` matches are found or 250 ads have been scanned
+- `hide_reserved`
 - sorting and pagination
 
-Returns a trimmed list of hits.
+Returns a trimmed list of hits, each with a numeric `price_amount`, a `status`
+("active" / "reserved" / "sold") and a `reserved` flag read out of the title —
+willhaben itself always reports an ad as active. `next_offset` and `has_more`
+say where to continue and when the catalogue is exhausted.
 
 **`list_categories(query, parent_id)`**
 
@@ -70,11 +81,14 @@ Search used cars (Gebrauchtwagen). All filters are optional.
 - `condition` (Gebrauchtwagen, Neuwagen, Oldtimer, ...), `color`, `dealer`
 - `equipment` (e.g. Sitzheizung, Anhängerkupplung)
 - ranges: `price_from/to`, `year_from/to`, `mileage_from/to`, `power_from/to`
+  (**kW**)
 - `warranty`, `condition_report` (Pickerl §57a), region, last 48h, sorting, paging
 
-Enumerated filters accept the willhaben label or id. Results include car fields
-(make, model, year, mileage, fuel, transmission, power). The filter and make
-data ships in `data/auto-motor/filters.json`.
+Enumerated filters accept the willhaben label or id, and an inverted range is
+rejected instead of silently ignored. Results include the car fields (make,
+model, year, mileage, fuel, transmission) and give power as both `power_kw` and
+`power_ps`, since willhaben stores kW while ads and buyers talk in PS. The
+filter and make data ships in `data/auto-motor/filters.json`.
 
 **`list_car_makes(query)`**
 
@@ -99,8 +113,11 @@ property); everything else is optional.
 - ranges: `price_from/to`, `area_from/to` (living m²), `plot_from/to` (plot m²)
 - region, last 48h, sorting, paging
 
-Filters that don't apply to the chosen type are ignored by willhaben. The type
-and filter data ships in `data/immobilien/filters.json`.
+Filters that don't apply to the chosen type are ignored by willhaben; an
+inverted range is rejected here rather than silently dropped. Results carry the
+numeric `price_amount` and `price_per_m2` next to `living_area_m2`,
+`plot_area_m2`, `rooms`, `floor`, `district` and `address`. The type and filter
+data ships in `data/immobilien/filters.json`.
 
 **`list_immobilien_types()`**
 
@@ -114,6 +131,10 @@ Everything about one ad: the full description, all images, itemised attributes,
 category path and precise location. Works across verticals. Run it on an id you
 got from a search. The mobile API caps the description near 600 characters, so
 when it looks cut off the full clean text is pulled from the ad's web page.
+
+This is also the only place willhaben states delivery: `handover`
+("Selbstabholung", "Versand") with `ships` / `pickup_only` alongside it —
+PayLivery in the search is a payment method and says nothing about shipping.
 
 **`get_ad_images(ad_id, max_images=4)`**
 

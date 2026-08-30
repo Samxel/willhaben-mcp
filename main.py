@@ -59,11 +59,6 @@ RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 MAX_RETRIES = 3
 
 
-class UpstreamError(RuntimeError):
-    """A willhaben failure, already phrased for the caller. Tools turn it into
-    ``{"error": ...}`` instead of leaking the internal url and an MDN link."""
-
-
 def _upstream_message(status: int, what: str) -> str:
     """Phrase an HTTP failure in terms the caller can act on, without the
     internal url and MDN link httpx puts in its own message."""
@@ -86,8 +81,6 @@ def _tool_errors(what: str):
         async def wrapper(*args, **kwargs):
             try:
                 return await fn(*args, **kwargs)
-            except UpstreamError as exc:
-                return {"error": str(exc)}
             except httpx.HTTPStatusError as exc:
                 return {"error": _upstream_message(exc.response.status_code, what)}
             except httpx.HTTPError as exc:
@@ -408,22 +401,17 @@ def _to_float(value) -> Optional[float]:
         return None
 
 
-_PRICE_IN_TEXT_RE = re.compile(r"(\d[\d.\s]*)(?:,(\d{1,2}))?")
-
-
 def _price_amount(attr: dict) -> Optional[float]:
     """The numeric price. Marketplace and car ads carry ``PRICE/AMOUNT``;
-    property ads only have ``PRICE`` (or the rent), so fall back through those
-    and finally parse the display string -- otherwise sorting and price-per-m2
-    are impossible on a value that is plainly there."""
-    for key in ("PRICE/AMOUNT", "PRICE", "RENT/PER_MONTH_LETTINGS", "PRICE/SALES_PRICE"):
+    property ads only have ``PRICE`` (or, for lettings, the monthly rent) --
+    without the fallback, sorting and price-per-m2 are impossible on a value
+    that is plainly there. An ad with none of these has no price at all
+    ("auf Anfrage"), and neither does its display string."""
+    for key in ("PRICE/AMOUNT", "PRICE", "RENT/PER_MONTH_LETTINGS"):
         amount = _to_float(attr.get(key))
         if amount is not None:
             return amount
-    match = _PRICE_IN_TEXT_RE.search(str(attr.get("PRICE_FOR_DISPLAY") or ""))
-    if not match:
-        return None
-    return _to_float(f"{re.sub(r'[.\s]', '', match[1])}.{match[2] or 0}")
+    return None
 
 
 # willhaben has no reserved/sold flag in the API -- sellers write it into the
@@ -487,6 +475,19 @@ def _widget(widgets: list[dict], widget_type: str) -> dict:
     return next((w for w in widgets if w.get("type") == widget_type), {})
 
 
+def _detail_attributes(detail: dict) -> dict:
+    """The detail's itemised ``name -> value`` attributes ("Übergabe",
+    "Zustand", ...), which live in the KEY_VALUE_PAIRS_LIST widget."""
+    pairs = _widget(detail.get("widgets", []), "KEY_VALUE_PAIRS_LIST").get("keyValuePairsList", [])
+    return {kv.get("name"): kv.get("value") for kv in pairs}
+
+
+def _handover_options(attributes: dict) -> list[str]:
+    """What the seller offers ("Selbstabholung", "Versand"). The only place
+    willhaben states delivery -- it is not in the search response at all."""
+    return [h.strip() for h in str(attributes.get("Übergabe") or "").split(",") if h.strip()]
+
+
 def _summarize_ad_detail(detail: dict) -> dict:
     """Reduce willhaben's widget-based advert-detail response to the fields that
     matter for an AI: the complete (untruncated) description, every image, the
@@ -497,18 +498,15 @@ def _summarize_ad_detail(detail: dict) -> dict:
 
     images = _widget(widgets, "PICTURE_SLIDER").get("advertImageList", [])
     title_price = _widget(widgets, "TITLE_WITH_PRICE")
-    key_values = _widget(widgets, "KEY_VALUE_PAIRS_LIST").get("keyValuePairsList", [])
     # Several PARAGRAPHED_TEXT widgets exist (e.g. the "Privatperson" label);
     # the real description is the one with the longest body.
     descriptions = [w.get("teaser", "") for w in widgets if w.get("type") == "PARAGRAPHED_TEXT"]
     description = max(descriptions, key=len) if descriptions else None
 
-    attributes = {kv.get("name"): kv.get("value") for kv in key_values}
+    attributes = _detail_attributes(detail)
     title = detail.get("description")
     status, reserved = _ad_status(title, detail)
-    # "Übergabe" is the only place shipping vs pickup is stated, and it is not
-    # in the search response -- paylivery is a payment method, not an answer.
-    handover = [h.strip() for h in str(attributes.get("Übergabe") or "").split(",") if h.strip()]
+    handover = _handover_options(attributes)
     exact_price = tms.get("exact_price")
     return {
         "id": detail.get("adId"),
@@ -548,14 +546,12 @@ Handover = Literal["versand", "abholung"]
 
 
 async def _handover(ad_id) -> Optional[list[str]]:
-    """The ad's "Übergabe" values, or None if the detail could not be read."""
+    """The ad's handover options, or None if the detail could not be read."""
     try:
         detail = await _fetch_detail(ad_id)
     except (httpx.HTTPError, RuntimeError):
         return None
-    pairs = _widget(detail.get("widgets", []), "KEY_VALUE_PAIRS_LIST").get("keyValuePairsList", [])
-    value = next((kv.get("value") for kv in pairs if kv.get("name") == "Übergabe"), "")
-    return [h.strip() for h in str(value or "").split(",") if h.strip()]
+    return _handover_options(_detail_attributes(detail))
 
 
 def _rows(rows: int) -> int:
@@ -757,7 +753,7 @@ async def search_willhaben(
         return not (hide_reserved and ad["status"] != "active")
 
     results: list = []
-    cursor, scanned, lookups, rows_found = offset, 0, 0, None
+    cursor, lookups, rows_found = offset, 0, None
     while True:
         params["rows"] = MAX_ROWS if post_filtered else rows
         params["offset"] = cursor
@@ -769,7 +765,6 @@ async def search_willhaben(
         ads = data.get("advertSummaryList", {}).get("advertSummary", [])
         for ad in ads:
             cursor += 1
-            scanned += 1
             summary = _summarize_ad(ad)
             if not keep(summary):
                 continue
@@ -791,16 +786,17 @@ async def search_willhaben(
             results.append(summary)
             if len(results) >= rows:
                 break
+        scanned = cursor - offset
         if not post_filtered or len(results) >= rows or not ads:
             break
-        if scanned >= FILTER_MAX_SCAN or (rows_found is not None and cursor >= rows_found):
+        if scanned >= FILTER_MAX_SCAN or lookups >= MAX_DETAIL_LOOKUPS:
             break
-        if handover and lookups >= MAX_DETAIL_LOOKUPS:
+        if rows_found is not None and cursor >= rows_found:
             break
 
     result = {**_pagination(rows_found, cursor, len(results)), "results": results}
     if post_filtered:
-        result["scanned"] = scanned
+        result["scanned"] = cursor - offset
     if handover:
         result["detail_lookups"] = lookups
     return result

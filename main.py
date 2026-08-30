@@ -540,17 +540,41 @@ def _summarize_ad_detail(detail: dict) -> dict:
 # A keyword or exclude filter is applied here, not by willhaben, so pages are
 # pulled until enough matches are collected -- bounded, to stay polite.
 FILTER_MAX_SCAN = 250
+# Whether a seller ships is only in the ad detail, so a shipping filter costs
+# one detail request per candidate. Hard cap so a search can't turn into a crawl.
+MAX_DETAIL_LOOKUPS = 40
+
+Handover = Literal["versand", "abholung"]
+
+
+async def _handover(ad_id) -> Optional[list[str]]:
+    """The ad's "Übergabe" values, or None if the detail could not be read."""
+    try:
+        detail = await _fetch_detail(ad_id)
+    except (httpx.HTTPError, RuntimeError):
+        return None
+    pairs = _widget(detail.get("widgets", []), "KEY_VALUE_PAIRS_LIST").get("keyValuePairsList", [])
+    value = next((kv.get("value") for kv in pairs if kv.get("name") == "Übergabe"), "")
+    return [h.strip() for h in str(value or "").split(",") if h.strip()]
+
+
+def _rows(rows: int) -> int:
+    """Validate a page size rather than quietly clamping 0 up to 1."""
+    rows = int(rows)
+    if rows < 1:
+        raise ValueError(f"rows must be at least 1 (got {rows}).")
+    return min(rows, MAX_ROWS)
 
 
 def _pagination(rows_found, scanned_to: int, returned: int) -> dict:
     """Where the caller stands in the result set, so paging can be stopped on a
     signal instead of on a repeated page."""
-    exhausted = rows_found is not None and scanned_to >= rows_found
+    more = not (rows_found is not None and scanned_to >= rows_found)
     return {
         "rows_found": rows_found,
         "rows_returned": returned,
-        "next_offset": scanned_to,
-        "has_more": not exhausted,
+        "next_offset": scanned_to if more else None,
+        "has_more": more,
     }
 
 
@@ -575,6 +599,7 @@ async def search_willhaben(
     title_only: bool = False,
     exclude: Optional[list[str]] = None,
     hide_reserved: bool = False,
+    handover: Optional[Handover] = None,
     last_48h: bool = False,
     rows: int = 4,
     offset: int = 0,
@@ -631,17 +656,22 @@ async def search_willhaben(
     anything is left, so you do not have to guess when the catalogue is
     exhausted.
 
-    Note that whether a seller ships is **not** in the search response
-    (``paylivery`` is a payment method, not shipping). ``get_ad_detail`` has it
-    as ``handover`` / ``ships`` / ``pickup_only``.
+    Whether a seller ships is **not** in willhaben's search response at all
+    (``paylivery`` is a payment method, not shipping), so ``handover="versand"``
+    or ``"abholung"`` costs one extra detail request per candidate that got
+    past the other filters, capped at 40 per search. Use it when shipping is
+    part of the requirement ("anywhere in Austria as long as they post it");
+    results then carry a ``handover`` list and ``ships`` / ``pickup_only``, and
+    ``detail_lookups`` reports what it cost. For a handful of ads you already
+    have, ``get_ad_detail`` is cheaper.
     """
     if not keyword and category is None:
         raise ValueError("Provide 'keyword' and/or 'category'.")
     _check_ranges(("price", price_from, price_to))
-    rows = max(1, min(int(rows), MAX_ROWS))
+    rows = _rows(rows)
     wanted = _tokens(keyword) if (title_only and keyword) else set()
     excluded = [_fold(term) for term in (exclude or []) if str(term).strip()]
-    post_filtered = bool(wanted or excluded or hide_reserved)
+    post_filtered = bool(wanted or excluded or hide_reserved or handover)
 
     params: dict = {
         "sfId": str(uuid.uuid4()),
@@ -713,7 +743,7 @@ async def search_willhaben(
         return not (hide_reserved and ad["status"] != "active")
 
     results: list = []
-    cursor, scanned, rows_found = offset, 0, None
+    cursor, scanned, lookups, rows_found = offset, 0, 0, None
     while True:
         params["rows"] = MAX_ROWS if post_filtered else rows
         params["offset"] = cursor
@@ -727,18 +757,38 @@ async def search_willhaben(
             cursor += 1
             scanned += 1
             summary = _summarize_ad(ad)
-            if keep(summary):
-                results.append(summary)
-                if len(results) >= rows:
+            if not keep(summary):
+                continue
+            # the expensive check runs last, only on ads everything else kept
+            if handover:
+                if lookups >= MAX_DETAIL_LOOKUPS:
                     break
+                lookups += 1
+                offered = await _handover(summary["id"])
+                if offered is None:
+                    continue
+                folded = _fold(" ".join(offered))
+                ships = "versand" in folded
+                # "abholung" asks for pickup to be on offer, not for it to be
+                # the only option -- most ads offer both.
+                if not (ships if handover == "versand" else "abhol" in folded):
+                    continue
+                summary.update({"handover": offered, "ships": ships, "pickup_only": not ships})
+            results.append(summary)
+            if len(results) >= rows:
+                break
         if not post_filtered or len(results) >= rows or not ads:
             break
         if scanned >= FILTER_MAX_SCAN or (rows_found is not None and cursor >= rows_found):
+            break
+        if handover and lookups >= MAX_DETAIL_LOOKUPS:
             break
 
     result = {**_pagination(rows_found, cursor, len(results)), "results": results}
     if post_filtered:
         result["scanned"] = scanned
+    if handover:
+        result["detail_lookups"] = lookups
     return result
 
 
@@ -1266,7 +1316,7 @@ async def search_autos(
     """
     _check_ranges(("price", price_from, price_to), ("year", year_from, year_to),
                   ("mileage", mileage_from, mileage_to), ("power", power_from, power_to))
-    rows = max(1, min(int(rows), MAX_ROWS))
+    rows = _rows(rows)
     params: dict = {
         "sfId": str(uuid.uuid4()),
         "isLog": "true",
@@ -1515,7 +1565,7 @@ async def search_immobilien(
     catid = _resolve_immo_type(property_type)
     _check_ranges(("price", price_from, price_to), ("area", area_from, area_to),
                   ("plot", plot_from, plot_to))
-    rows = max(1, min(int(rows), MAX_ROWS))
+    rows = _rows(rows)
     params: dict = {
         "sfId": str(uuid.uuid4()),
         "isLog": "true",

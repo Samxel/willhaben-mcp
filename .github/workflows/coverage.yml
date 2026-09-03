@@ -20,7 +20,7 @@ jobs:
         run: python scripts/update_coverage.py
       - name: Fetch clone traffic
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN }}
         run: |
           gh api "repos/${{ github.repository }}/traffic/clones" > clones_raw.json
           python scripts/update_clones.py

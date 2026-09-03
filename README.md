@@ -27,6 +27,93 @@ reverse-engineered mobile-app API and returning the important fields to the AI.
 - **Search that stays on target**  
   willhaben matches a keyword against the whole ad text, so "RTX 4070" also returns brackets, cables and unrelated cards — worst of all sorted by price. `title_only` and `exclude` filter that out and page on until enough real matches are found, and every hit says whether it is already **reserved**.
 
+## Setup
+
+```bash
+pip install -r requirements.txt
+```
+
+## Run
+
+```bash
+python main.py
+```
+
+The server starts over streamable HTTP and prints where it's listening:
+
+```
+Starting willhaben-mcp server on http://127.0.0.1:8000/mcp
+```
+
+Point your MCP client at that URL. Host, port and path live at the top of
+`main.py`.
+
+## Add it to Claude (and other MCP clients)
+
+The server speaks streamable HTTP, so most clients only need the URL it printed
+on startup.
+
+### Claude Code
+
+One command, no config file:
+
+```bash
+claude mcp add --transport http willhaben http://127.0.0.1:8000/mcp
+```
+
+Add `--scope user` to have it in every project instead of only the current one.
+`claude mcp list` shows whether the connection came up, `claude mcp remove
+willhaben` takes it out again.
+
+### Cursor, Codex, VS Code and other JSON-config clients
+
+Same URL, in the client's MCP config:
+
+```json
+{
+  "mcpServers": {
+    "willhaben": {
+      "type": "http",
+      "url": "http://127.0.0.1:8000/mcp"
+    }
+  }
+}
+```
+
+### Claude Desktop
+
+Custom connectors (**Settings > Connectors**) are dialled from Anthropic's
+cloud, so they cannot reach a server bound to your own machine. Two ways
+around it:
+
+**Bridge over stdio** with [`mcp-remote`](https://www.npmjs.com/package/mcp-remote)
+(needs [Node.js](https://nodejs.org)). Open **Settings > Developer > Edit
+Config**, add the `willhaben` entry to `claude_desktop_config.json` and restart
+Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "willhaben": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "mcp-remote", "http://127.0.0.1:8000/mcp"]
+    }
+  }
+}
+```
+
+On macOS/Linux drop the Windows wrapper: `"command": "npx"` with
+`"args": ["-y", "mcp-remote", "http://127.0.0.1:8000/mcp"]`.
+
+**Or expose the server** (cloudflared, ngrok, or run it on a box with a public
+hostname) and add that HTTPS URL under **Settings > Connectors > Add custom
+connector**. That route also makes the tools available in claude.ai and the
+mobile apps, not just the desktop client but the API it talks to is then
+reachable by whoever finds the URL, so put auth in front of it.
+
+To stop confirming every call, open **Settings > Connectors > willhaben** and set
+the tools' dropdown on the right to **Always allow**.
+
 ## Tools
 
 ### Marketplace
@@ -157,93 +244,6 @@ Handy when you want to actually look at a listing.
 Who is selling: name, private vs dealer, rating and reply time (private
 sellers), the member-since / created date, and location. Useful for a trust or
 plausibility check the ad itself does not answer.
-
-## Setup
-
-```bash
-pip install -r requirements.txt
-```
-
-## Run
-
-```bash
-python main.py
-```
-
-The server starts over streamable HTTP and prints where it's listening:
-
-```
-Starting willhaben-mcp server on http://127.0.0.1:8000/mcp
-```
-
-Point your MCP client at that URL. Host, port and path live at the top of
-`main.py`.
-
-## Add it to Claude (and other MCP clients)
-
-The server speaks streamable HTTP, so most clients only need the URL it printed
-on startup.
-
-### Claude Code
-
-One command, no config file:
-
-```bash
-claude mcp add --transport http willhaben http://127.0.0.1:8000/mcp
-```
-
-Add `--scope user` to have it in every project instead of only the current one.
-`claude mcp list` shows whether the connection came up, `claude mcp remove
-willhaben` takes it out again.
-
-### Cursor, Codex, VS Code and other JSON-config clients
-
-Same URL, in the client's MCP config:
-
-```json
-{
-  "mcpServers": {
-    "willhaben": {
-      "type": "http",
-      "url": "http://127.0.0.1:8000/mcp"
-    }
-  }
-}
-```
-
-### Claude Desktop
-
-Custom connectors (**Settings > Connectors**) are dialled from Anthropic's
-cloud, so they cannot reach a server bound to your own machine. Two ways
-around it:
-
-**Bridge over stdio** with [`mcp-remote`](https://www.npmjs.com/package/mcp-remote)
-(needs [Node.js](https://nodejs.org)). Open **Settings > Developer > Edit
-Config**, add the `willhaben` entry to `claude_desktop_config.json` and restart
-Claude Desktop:
-
-```json
-{
-  "mcpServers": {
-    "willhaben": {
-      "command": "cmd",
-      "args": ["/c", "npx", "-y", "mcp-remote", "http://127.0.0.1:8000/mcp"]
-    }
-  }
-}
-```
-
-On macOS/Linux drop the Windows wrapper: `"command": "npx"` with
-`"args": ["-y", "mcp-remote", "http://127.0.0.1:8000/mcp"]`.
-
-**Or expose the server** (cloudflared, ngrok, or run it on a box with a public
-hostname) and add that HTTPS URL under **Settings > Connectors > Add custom
-connector**. That route also makes the tools available in claude.ai and the
-mobile apps, not just the desktop client but the API it talks to is then
-reachable by whoever finds the URL, so put auth in front of it.
-
-To stop confirming every call, open **Settings > Connectors > willhaben** and set
-the tools' dropdown on the right to **Always allow**.
 
 ## Notes
 

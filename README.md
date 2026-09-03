@@ -16,16 +16,13 @@ reverse-engineered mobile-app API and returning the important fields to the AI.
 ## Highlights
 
 - **Visual Listing Analysis**  
-  Downloads and analyzes the actual ad photos, allowing vision-capable AI to inspect an item's **condition, wear, damage, completeness, and other visual details** instead of relying only on the seller's description.
+  Downloads and analyzes the actual ad photos, allowing vision-capable AI to inspect an item's condition, wear, damage, completeness, and other visual details instead of relying only on the seller's description.
 
 - **Full access to willhaben filters**  
-  Search with the **complete range of available filters** across Marketplace and Auto & Motor including categories, brands, condition, size, color, price, region, vehicle specs, equipment, and much more.
+  Search with the complete range of available filters across Marketplace, Immobilien and Auto & Motor including categories, brands, condition, size, color, price, region, vehicle specs, equipment, and much more.
 
 - **From discovery to full inspection**  
-  Find relevant ads, then retrieve **complete listing details, full descriptions, attributes, precise locations, and all available photos** for a deeper analysis.
-
-- **Search that stays on target**  
-  willhaben matches a keyword against the whole ad text, so "RTX 4070" also returns brackets, cables and unrelated cards — worst of all sorted by price. `title_only` and `exclude` filter that out and page on until enough real matches are found, and every hit says whether it is already **reserved**.
+  Find relevant ads, then retrieve complete listing details, full descriptions, attributes, precise locations, and all available photos for a deeper analysis.
 
 ## Setup
 

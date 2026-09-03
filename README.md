@@ -13,6 +13,17 @@ reverse-engineered mobile-app API and returning the important fields to the AI.
   <a href="https://github.com/Samxel/willhaben-mcp/graphs/traffic"><img alt="Clones" src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FSamxel%2Fwillhaben-mcp%2Fmain%2Fclones.json&query=%24.total_clones&label=Clones&color=6e7781&suffix=%20total&cacheSeconds=3600"></a>
 </p>
 
+<p align="center">
+  <a href="#highlights">Highlights</a> ·
+  <a href="#setup">Setup</a> ·
+  <a href="#run">Run</a> ·
+  <a href="#add-it-to-claude-and-other-mcp-clients">Add to Claude</a> ·
+  <a href="#tools">Tools</a> ·
+  <a href="#notes">Notes</a> ·
+  <a href="#disclaimer">Disclaimer</a> ·
+  <a href="#license">License</a>
+</p>
+
 ## Highlights
 
 - **Visual Listing Analysis**  
@@ -113,7 +124,8 @@ the tools' dropdown on the right to **Always allow**.
 
 ## Tools
 
-### Marketplace
+<details>
+<summary><h3>Marketplace</h3></summary>
 
 **`search_willhaben(keyword, ...)`**
 
@@ -165,7 +177,10 @@ Note: condition, sizes, color, pattern and brand are category-dependent.
 Applying them in a broad category can return zero hits, so drill into a
 specific subcategory first.
 
-### Auto & Motor
+</details>
+
+<details>
+<summary><h3>Auto & Motor</h3></summary>
 
 **`search_autos(make, model, ...)`**
 
@@ -192,7 +207,10 @@ List car make ids for `search_autos`. Optional `query` filters by name.
 
 List the models of a make (fetched live, since models are make-specific).
 
-### Immobilien
+</details>
+
+<details>
+<summary><h3>Immobilien</h3></summary>
 
 **`search_immobilien(property_type, ...)`**
 
@@ -217,7 +235,10 @@ data ships in `data/immobilien/filters.json`.
 
 List the real-estate property types for `search_immobilien`.
 
-### Shared
+</details>
+
+<details>
+<summary><h3>Shared</h3></summary>
 
 **`get_ad_detail(ad_id)`**
 
@@ -241,6 +262,8 @@ Handy when you want to actually look at a listing.
 Who is selling: name, private vs dealer, rating and reply time (private
 sellers), the member-since / created date, and location. Useful for a trust or
 plausibility check the ad itself does not answer.
+
+</details>
 
 ## Notes
 

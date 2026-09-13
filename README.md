@@ -139,13 +139,25 @@ Filters:
 - `brand`
 - region, seller type, price range, PayLivery, last 48h
 - `title_only` (every keyword word must be in the **title**, not just anywhere
-  in the ad text) and `exclude` (drop titles containing any of these words,
-  e.g. `["verpackung", "ovp", "halterung"]`) — both applied here, paging on
-  until `rows` matches are found or 250 ads have been scanned. Accessories and
-  spare parts carry the product's exact name in their own title, so `title_only`
-  won't remove them; a `price_from` floor at ~15–20% of the product's real price
-  (from Geizhals' `get_model_price_range`) clears out nearly all of them without
-  guessing any vocabulary
+  in the ad text) and `exclude` (drop titles carrying any of these words, e.g.
+  `["pro", "max", "mini"]` to keep a base model clean of its own trim levels) —
+  both applied here, paging on until `rows` matches are found or 250 ads have
+  been scanned. `exclude` matches a whole word or a German compound tail
+  (`"kabel"` catches `"Ladekabel"`) but never a mere prefix, so `"pro"` spares
+  every `"Prozessor"`
+- `require` — terms that must appear **anywhere in the title or description**,
+  with a number and its unit matched however it is spelled: `["128gb"]`,
+  `["128 GB"]` and `["128 gb"]` are one filter and each finds all three
+  spellings. **This is where specs belong.** Putting them in `keyword` instead
+  is the one mistake that quietly breaks a search — sellers write the same
+  storage size nine different ways and one ad in five leaves it out of the title
+  entirely, so `keyword="iPhone 13 128 GB", title_only=True` finds almost
+  nothing while `keyword="iPhone 13", require=["128gb"]` finds what you meant
+- accessories are what none of these fix, because a case carries the phone's
+  exact name too. Excluding nouns like `"case"` or `"akku"` backfires — those
+  appear in real listings' titles (`"Akku 100%"`) — so use a `price_from` floor
+  at ~15–20% of the product's real price instead (Geizhals'
+  `get_model_price_range` gives you that number)
 - `hide_reserved`
 - `handover` (`"versand"` / `"abholung"`) — shipping is not in willhaben's
   search response at all, so this costs one detail request per surviving

@@ -292,6 +292,35 @@ def _tokens(text: str) -> set:
     return out
 
 
+# A number and its unit: sellers write the same storage size as "128GB",
+# "128 GB", "128gb" or "256Gb", so a term given in one of those has to match all.
+_NUM_UNIT_RE = re.compile(r"^(\d+)\s*([a-z]+)$")
+
+
+def _term_forms(term: str) -> list[set]:
+    """The token sets a filter term may appear as. Everything is one form,
+    except a number with a unit, which is also accepted split in two -- that way
+    a term matches whichever way the seller spelled it, without changing how the
+    rest of a title is read."""
+    folded = _fold(term).strip()
+    match = _NUM_UNIT_RE.match(folded)
+    if not match:
+        return [_tokens(folded)]
+    number, unit = match.groups()
+    return [{f"{number}{unit}"}, {number, unit}]
+
+
+def _has_term(tokens: set, forms: list[set]) -> bool:
+    """Whether a title (or ad text) carries a filter term. A word matches in
+    full, or as the tail of a German compound ("kabel" catches "Ladekabel"), but
+    never one that merely starts with it -- otherwise "pro" would throw away
+    every "Prozessor" and "provisionsfrei" and be useless for separating an
+    iPhone 13 from an iPhone 13 Pro."""
+    return any(all(any(token == word or token.endswith(word) for token in tokens)
+                   for word in form)
+               for form in forms)
+
+
 def _check_ranges(*bounds) -> None:
     """Reject an inverted range instead of letting willhaben drop the filter and
     quietly answer with everything."""
@@ -594,94 +623,86 @@ async def search_willhaben(
     paylivery: Optional[bool] = None,
     title_only: bool = False,
     exclude: Optional[list[str]] = None,
+    require: Optional[list[str]] = None,
     hide_reserved: bool = False,
     handover: Optional[Handover] = None,
     last_48h: bool = False,
     rows: int = 4,
     offset: int = 0,
 ) -> dict:
-    """Search willhaben.at marketplace listings, with optional filters for
-    category, condition, clothing/shoe size, colour, pattern, brand, region,
-    seller, price and recency.
+    """Search willhaben.at marketplace listings. At least one of ``keyword`` or
+    ``category`` is required.
 
-    At least one of ``keyword`` or ``category`` must be given.
+    Scope to a category when you can (``list_categories`` finds the id): a bare
+    keyword matches the **whole ad text**, so it drags in accessories, bundles
+    and spare parts, and with ``sort_by="price_asc"`` that junk takes the top
+    spots.
 
-    When you're after a specific kind of product, prefer scoping the search to
-    its category: find it with ``list_categories`` and pass it as ``category``.
-    A bare keyword search matches the whole ad text, so it also drags in loosely
-    related listings (accessories, bundles, spare parts, other product types) --
-    scoping to the category cuts that noise and lets you add the matching
-    attribute filters. Keep it keyword-only for broad or one-off queries.
+    **Put the model in ``keyword`` and every spec in ``require``.** Mixing them
+    is the one mistake that quietly breaks a search: sellers write a storage size
+    as "128GB", "128 GB" or "256Gb" and one ad in five leaves it out of the title
+    altogether, so ``keyword="iPhone 13 128 GB", title_only=True`` finds almost
+    nothing while ``keyword="iPhone 13", require=["128gb"]`` finds what you meant.
 
-    - ``category``: a willhaben category id (int) or its exact name. Use the
-      ``list_categories`` tool to discover ids. Restricts the search to that
-      category and all its subcategories.
-    - ``condition``: one or more of "neu", "neuwertig", "generalueberholt",
-      "gebraucht", "defekt", "ausstellungsstueck".
-    - ``clothing_size``: e.g. "38", "40", "46 / S", "48 / M", "ab 58"
-      (only meaningful inside clothing categories).
-    - ``shoe_size``: e.g. "38", "42", "45", "bis 15", "ab 48"
-      (only meaningful inside shoe categories).
-    - ``color``: one or more of the 16 willhaben colours (e.g. "schwarz", "blau").
-    - ``pattern``: one or more of the 14 willhaben patterns (e.g. "gestreift",
-      "floral"). Colour/pattern mostly apply to fashion & home categories.
+    Three filters, all applied here over what willhaben returns:
 
-    To filter by brand, first resolve it with ``search_brands`` and pass the
-    returned id(s) via the ``brand`` parameter.
+    - ``title_only=True`` -- every word of ``keyword`` must be in the **title**.
+      A glued-together model code matches either way round ("RTX4070" finds
+      "RTX 4070"), but that is the *only* spacing it forgives: a unit is not
+      normalized, so "128GB" does **not** find "128 GB". Identity only.
+    - ``require`` -- all of these must appear in the **title or description**,
+      e.g. ``["128gb"]``. A number with its unit matches however it is spelled,
+      so ``"128gb"``, ``"128 GB"`` and ``"128 gb"`` are one and the same filter.
+      Capacity, RAM, colour, model year belong here.
+    - ``exclude`` -- drop ads whose **title** carries any of these, e.g.
+      ``["pro", "max", "mini"]``. Matches a whole word or a German compound tail
+      ("kabel" catches "Ladekabel"), never a mere prefix, so "pro" spares
+      "Prozessor". Title only, so a description mentioning the word is safe.
 
-    willhaben matches ``keyword`` against the **whole ad text**, so a search for
-    "RTX 4070" also returns mounting brackets, cables and ads that merely
-    mention the card -- and with ``sort_by="price_asc"`` exactly that junk takes
-    the top spots. Two filters fix it, both applied here over the ads willhaben
-    returns:
+    ``title_only`` cannot separate a base model from its own trim levels -- an
+    "iPhone 13 Pro Max" title does contain every word of "iPhone 13". You cannot
+    know those words up front, so don't guess: search, and if variants turn up,
+    **re-run with them in ``exclude`` instead of dropping rows while you
+    answer** -- the filtered search pages on, so you still get ``rows`` real
+    matches instead of a short list. Leave out what the user did ask for: for
+    "iPhone 13 Pro", exclude only ``["max"]``.
 
-    - ``title_only=True``: keep only ads whose **title** contains every word of
-      ``keyword`` ("RTX4070" and "RTX 4070" match each other).
-    - ``exclude``: drop ads whose title contains any of these words, e.g.
-      ``["verpackung", "ovp", "halterung", "kabel"]``. Title only, so an ad that
-      just mentions the word in its description is kept.
+    Model words ("pro", "mini", "ti") are safe to exclude. **Ordinary nouns are
+    not**: "case", "akku" and "display" also appear in real listings' titles
+    ("Akku 100%"), so excluding those throws away what you wanted. For
+    accessories use ``price_from`` at ~15-20% of the real price instead --
+    Geizhals' ``get_model_price_range`` gives you that number.
 
-    Use them whenever you are hunting for a specific product. Because they run
-    after the fetch, the tool pages through willhaben until it has ``rows``
-    matches or has scanned 250 ads; ``scanned`` reports how far it got.
+    Results carry ``price_amount`` and ``status`` ("active" / "reserved" /
+    "sold") with a ``reserved`` flag, read from the title because willhaben
+    always reports an ad as active; ``hide_reserved`` drops them.
+    ``next_offset`` / ``has_more`` tell you where to continue and when the
+    catalogue is exhausted. ``scanned`` reports how deep the filters had to page
+    (cap 250). The description in a search hit is cut near 200 characters --
+    ``get_ad_detail`` has the full text.
 
-    ``title_only`` does not remove accessories and spare parts: a case, a
-    mounting bracket or a replacement back cover legitimately carries the
-    product's exact name in its own title. Two things do, and they compose:
+    ``handover`` ("versand" / "abholung") is the only way to filter by shipping,
+    which willhaben omits from its search response entirely (``paylivery`` is a
+    payment method). It costs one detail request per surviving candidate, capped
+    at 40 and reported as ``detail_lookups``.
 
-    - ``price_from``. An accessory costs a fraction of the item, so a floor at
-      roughly 15-20% of the product's real price clears out nearly all of them
-      in one move, without you having to guess any vocabulary. Geizhals'
-      ``get_model_price_range`` gives you that number; a listing below that
-      floor is virtually never the product itself.
-    - ``exclude`` with words picked for *this* search -- "huelle", "case",
-      "rahmen", "backcover" for a phone; "halterung", "kabel", "wasserkuehler"
-      for a graphics card; and "kein" to catch titles that name the product
-      only to say they are not it ("SOYES XS15 Pro - kein iPhone 16 Pro").
-
-    Every result carries ``status`` ("active" / "reserved" / "sold") and a
-    ``reserved`` flag, read out of the title -- willhaben has no field for it
-    and always reports an ad as active. ``hide_reserved=True`` drops them.
-    Paging: ``next_offset`` is where to continue and ``has_more`` says whether
-    anything is left, so you do not have to guess when the catalogue is
-    exhausted.
-
-    Whether a seller ships is **not** in willhaben's search response at all
-    (``paylivery`` is a payment method, not shipping), so ``handover="versand"``
-    or ``"abholung"`` costs one extra detail request per candidate that got
-    past the other filters, capped at 40 per search. Use it when shipping is
-    part of the requirement ("anywhere in Austria as long as they post it");
-    results then carry a ``handover`` list and ``ships`` / ``pickup_only``, and
-    ``detail_lookups`` reports what it cost. For a handful of ads you already
-    have, ``get_ad_detail`` is cheaper.
+    - ``category``: id (int) or exact name; includes all subcategories.
+    - ``condition``: "neu", "neuwertig", "generalueberholt", "gebraucht",
+      "defekt", "ausstellungsstueck".
+    - ``clothing_size`` / ``shoe_size``: e.g. "38", "46 / S", "ab 58" / "42",
+      "bis 15" -- only meaningful inside clothing/shoe categories.
+    - ``color`` / ``pattern``: the 16 willhaben colours / 14 patterns, mostly
+      fashion & home.
+    - ``brand``: resolve it with ``search_brands`` first, then pass the id(s).
     """
     if not keyword and category is None:
         raise ValueError("Provide 'keyword' and/or 'category'.")
     _check_ranges(("price", price_from, price_to))
     rows = _rows(rows)
     wanted = _tokens(keyword) if (title_only and keyword) else set()
-    excluded = [_fold(term) for term in (exclude or []) if str(term).strip()]
-    post_filtered = bool(wanted or excluded or hide_reserved or handover)
+    excluded = [_term_forms(t) for t in (exclude or []) if str(t).strip()]
+    required = [_term_forms(t) for t in (require or []) if str(t).strip()]
+    post_filtered = bool(wanted or excluded or required or hide_reserved or handover)
 
     params: dict = {
         "sfId": str(uuid.uuid4()),
@@ -745,11 +766,17 @@ async def search_willhaben(
         "Content-Type": "application/json",
     }
     def keep(ad: dict) -> bool:
-        title = _fold(ad["title"] or "")
-        if wanted and not wanted <= _tokens(title):
+        tokens = _tokens(ad["title"] or "")
+        if wanted and not wanted <= tokens:
             return False
-        if any(term in title for term in excluded):
+        if any(_has_term(tokens, forms) for forms in excluded):
             return False
+        if required:
+            # a spec is written wherever the seller felt like it, so look at the
+            # whole ad rather than demanding it in the title
+            text = tokens | _tokens(ad["description"] or "")
+            if not all(_has_term(text, forms) for forms in required):
+                return False
         return not (hide_reserved and ad["status"] != "active")
 
     results: list = []

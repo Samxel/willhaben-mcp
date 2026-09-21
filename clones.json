@@ -123,9 +123,13 @@
     "2026-09-19": {
       "count": 19,
       "uniques": 11
+    },
+    "2026-09-20": {
+      "count": 23,
+      "uniques": 15
     }
   },
-  "total_clones": 288,
-  "total_uniques": 194,
-  "days_tracked": 31
+  "total_clones": 311,
+  "total_uniques": 209,
+  "days_tracked": 32
 }

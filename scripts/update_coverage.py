@@ -26,6 +26,7 @@ VERTICALS = {
 
 def fetch_verticals() -> dict[int, int]:
     headers = {
+        "user-agent": "willhaben/613937 okhttp/5.4.0 Android/14",
         "x-wh-client": WH_CLIENT,
         "x-wh-visitor-id": str(uuid.uuid4()),
         "Accept": "application/json",

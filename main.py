@@ -469,11 +469,10 @@ def _attributes_to_dict(ad: dict) -> dict:
     return result
 
 
-def _first_image_url(ad: dict) -> Optional[str]:
-    images = ad.get("advertImageList", {}).get("advertImage", [])
-    if images:
-        return images[0].get("referenceImageUrl") or images[0].get("mainImageUrl")
-    return None
+def _ad_url(ad_id) -> Optional[str]:
+    """The ad's short link; willhaben redirects it to the long SEO address, which
+    is three times the length for the same page."""
+    return f"https://www.willhaben.at/iad/object?adId={ad_id}" if ad_id else None
 
 
 def _to_float(value) -> Optional[float]:
@@ -529,26 +528,24 @@ def _summarize_ad(ad: dict) -> dict:
     """Reduce a full willhaben advert to the handful of fields that matter
     for an AI response instead of returning the whole raw object."""
     attr = _attributes_to_dict(ad)
-    seo_url = attr.get("SEO_URL")
     title = attr.get("HEADING") or ad.get("description")
-    status, reserved = _ad_status(title, ad)
+    amount = _price_amount(attr)
     return {
         "id": ad.get("id"),
         "title": title,
         "description": attr.get("BODY_DYN"),
-        "price": attr.get("PRICE_FOR_DISPLAY"),
-        "price_amount": _price_amount(attr),
-        "status": status,
-        "reserved": reserved,
+        "price_amount": amount,
+        # the display string only says something the number does not when
+        # there is no number ("auf Anfrage")
+        "price": attr.get("PRICE_FOR_DISPLAY") if amount is None else None,
+        "status": _ad_status(title, ad)[0],
         "seller": "privat" if attr.get("ISPRIVATE") == "1" else "haendler",
         "seller_name": attr.get("ORGNAME") or attr.get("CONTACT/NAME"),
         "location": attr.get("LOCATION"),
         "postcode": attr.get("POSTCODE"),
-        "state": attr.get("STATE"),
-        "published": attr.get("PUBLISHED_String"),
-        "paylivery": attr.get("p2penabled") == "true",
-        "url": f"https://www.willhaben.at/iad/{seo_url}" if seo_url else None,
-        "image_url": _first_image_url(ad),
+        "published": (attr.get("PUBLISHED_String") or "")[:16] or None,
+        "paylivery": attr.get("p2penabled") == "true" or None,
+        "url": _ad_url(ad.get("id")),
     }
 
 
@@ -587,33 +584,35 @@ def _summarize_ad_detail(detail: dict) -> dict:
 
     attributes = _detail_attributes(detail)
     title = detail.get("description")
-    status, reserved = _ad_status(title, detail)
     handover = _handover_options(attributes)
-    exact_price = tms.get("exact_price")
+    amount = _to_float(tms.get("exact_price"))
     return {
         "id": detail.get("adId"),
         "title": title,
         "description": description or None,
-        "price": title_price.get("formattedPrice"),
-        "price_amount": _to_float(exact_price),
-        "status": status,
-        "reserved": reserved,
+        "price_amount": amount,
+        "price": title_price.get("formattedPrice") if amount is None else None,
+        "status": _ad_status(title, detail)[0],
         "condition": attributes.get("Zustand"),
         "handover": handover,
         "ships": any("versand" in h.lower() for h in handover),
         "pickup_only": bool(handover) and not any("versand" in h.lower() for h in handover),
         "seller": "privat" if tms.get("is_private") == "true" else "haendler",
         "seller_name": tms.get("seller_name"),
-        "paylivery": detail.get("payliveryEnabled"),
+        "paylivery": detail.get("payliveryEnabled") or None,
         "location": tms.get("region_level_3"),
         "postcode": tms.get("post_code"),
         "state": tms.get("region_level_2"),
         "category": [kv.get("categoryName") for kv in
                      _widget(widgets, "CATEGORIES").get("categoryPath", {}).get("categoryEntryList", [])],
-        "attributes": attributes,
+        # condition and handover are pulled out above already
+        "attributes": {k: v for k, v in attributes.items() if k not in ("Zustand", "Übergabe")} or None,
         "published": tms.get("publish_date"),
         "delivery": title_price.get("deliveryCosts"),
-        "image_urls": [img.get("referenceImageUrl") for img in images],
+        # the pictures themselves come from get_ad_images; their urls would
+        # only cost tokens here
+        "image_count": len(images),
+        "url": _ad_url(detail.get("adId")),
     }
 
 
@@ -741,9 +740,10 @@ async def search_willhaben(
     accessories use ``price_from`` at ~15-20% of the real price instead --
     Geizhals' ``get_model_price_range`` gives you that number.
 
-    Results carry ``price_amount`` and ``status`` ("active" / "reserved" /
-    "sold") with a ``reserved`` flag, read from the title because willhaben
-    always reports an ad as active; ``hide_reserved`` drops them.
+    Results carry ``price_amount`` (``price`` only when there is no amount, e.g.
+    "auf Anfrage") and ``status`` ("active" / "reserved" / "sold"), read from the
+    title because willhaben always reports an ad as active; ``hide_reserved``
+    drops the reserved and sold ones.
     ``next_offset`` / ``has_more`` tell you where to continue and when the
     catalogue is exhausted. ``scanned`` reports how deep the filters had to page
     (cap 250). The description in a search hit is cut near 200 characters --
@@ -911,9 +911,9 @@ async def get_ad_detail(ad_id: Union[str, int]) -> dict:
     This is also the only place shipping is stated: ``handover`` lists what the
     seller offers ("Selbstabholung", "Versand"), with ``ships`` and
     ``pickup_only`` as the ready-made booleans -- ``paylivery`` in the search is
-    a payment method and says nothing about delivery. ``status`` /
-    ``reserved`` come from the title marker, the only place willhaben records
-    that an item is already spoken for."""
+    a payment method and says nothing about delivery. ``status`` comes from the
+    title marker, the only place willhaben records that an item is already
+    spoken for."""
     summary = _summarize_ad_detail(await _fetch_detail(ad_id))
     # the detail API truncates long descriptions near 600 chars; recover the full
     # text from the web page only when it looks cut off.
@@ -1108,7 +1108,7 @@ async def list_categories(
     - ``parent_id``: list the direct child categories of this id. Omit both
       ``query`` and ``parent_id`` to get the top-level categories.
 
-    Returns ``{count, categories: [{id, label, parent_id, path, has_children}]}``.
+    Returns ``{count, categories: [{id, path, has_children}]}``.
     ``has_children`` tells you whether you can drill further with ``parent_id``.
     ``limit`` is at most 100.
     """
@@ -1123,8 +1123,7 @@ async def list_categories(
     results = [
         {
             "id": cid,
-            "label": CATEGORY_LABEL[cid],
-            "parent_id": CATEGORY_PARENT[cid],
+            # the path ends in the label, and the parent is the step before it
             "path": CATEGORY_PATH[cid],
             "has_children": bool(CATEGORY_CHILDREN.get(cid)),
         }

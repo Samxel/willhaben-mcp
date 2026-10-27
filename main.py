@@ -378,11 +378,40 @@ def _resolve_category(category: Union[int, str]) -> str:
         return str(cid)
     matches = _CATEGORY_BY_NAME.get(_norm(category), [])
     if not matches:
-        raise ToolError(f"Unknown category '{category}'. Use list_categories to find the id.")
+        # names come in any order and wording ("Handys / Smartphones" for
+        # "Smartphones / Handys"): a category carrying every word is meant
+        wanted = _tokens(category)
+        matches = [cid for cid, label in CATEGORY_LABEL.items() if wanted and wanted <= _tokens(label)]
+    if not matches:
+        raise ToolError(f"Unknown category '{category}'. {_closest_categories(category)}")
     if len(matches) > 1:
         opts = ", ".join(f"{i} ({CATEGORY_PATH[i]})" for i in matches[:10])
         raise ToolError(f"Category '{category}' is ambiguous ({len(matches)} matches): {opts}. Please pass an id.")
     return str(matches[0])
+
+
+def _word_overlap(wanted: set, words: set) -> int:
+    """How many of `words` relate to one of `wanted`, counting a part of a
+    German compound: "damenschuhe" finds both "schuhe" and "damenmode"."""
+    def related(a, b):
+        if a == b:
+            return True
+        # parts of a compound only count from four letters on, or "r" from
+        # "R&B" would be found in every other word
+        return len(a) >= 4 and len(b) >= 4 and (a in b or b in a or a[:5] == b[:5])
+    return sum(any(related(w, word) for w in wanted) for word in words)
+
+
+def _closest_categories(name: str, limit: int = 5) -> str:
+    """The categories whose path shares the most words with `name`, as a hint
+    for the model, so a near miss does not end in a bare "unknown"."""
+    wanted = {w for w in _tokens(name) if len(w) >= 3}
+    scored = sorted(((_word_overlap(wanted, _tokens(CATEGORY_PATH[cid])), cid) for cid in CATEGORY_LABEL),
+                    key=lambda pair: (-pair[0], len(CATEGORY_PATH[pair[1]])))
+    best = [f"{cid} ({CATEGORY_PATH[cid]})" for score, cid in scored[:limit] if score]
+    if not best:
+        return "Use list_categories to find the id."
+    return "Closest: " + ", ".join(best) + ". Pass one of these ids."
 
 
 def _resolve_sizes(values, mapping: dict, kind: str) -> list[str]:

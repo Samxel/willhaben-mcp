@@ -20,6 +20,7 @@ reverse-engineered mobile-app API and returning the important fields to the AI.
   <a href="#add-it-to-claude-and-other-mcp-clients">Add to Claude</a> ·
   <a href="#tools">Tools</a> ·
   <a href="#notes">Notes</a> ·
+  <a href="#tests">Tests</a> ·
   <a href="#disclaimer">Disclaimer</a> ·
   <a href="#license">License</a>
 </p>
@@ -37,9 +38,14 @@ reverse-engineered mobile-app API and returning the important fields to the AI.
 
 ## Setup
 
+Requires Python 3.10+.
+
 ```bash
 pip install -r requirements.txt
 ```
+
+With [uv](https://docs.astral.sh/uv/) you can skip this step: `main.py`
+declares its own dependencies, so `uv run main.py` installs them on the fly.
 
 ## Run
 
@@ -50,23 +56,32 @@ python main.py
 The server starts over streamable HTTP and prints where it's listening:
 
 ```
-Starting willhaben-mcp server on http://127.0.0.1:8000/mcp
+Starting willhaben-mcp server on http://127.0.0.1:8010/mcp
 ```
 
 Point your MCP client at that URL. Host, port and path live at the top of
 `main.py`.
 
+For clients that start the server themselves, `python main.py --stdio` speaks
+MCP over stdin/stdout instead. Nothing has to run in the background then.
+
 ## Add it to Claude (and other MCP clients)
 
-The server speaks streamable HTTP, so most clients only need the URL it printed
-on startup.
+Clients that start their own servers use the stdio mode. Clients that connect
+to a URL need `python main.py` running and take the URL it printed on startup.
 
 ### Claude Code
 
-One command, no config file:
+One command, no config file. Claude Code starts the server itself:
 
 ```bash
-claude mcp add --transport http willhaben http://127.0.0.1:8000/mcp
+claude mcp add willhaben -- python /path/to/willhaben-mcp/main.py --stdio
+```
+
+Or connect to a server you already started with `python main.py`:
+
+```bash
+claude mcp add --transport http willhaben http://127.0.0.1:8010/mcp
 ```
 
 Add `--scope user` to have it in every project instead of only the current one.
@@ -82,7 +97,7 @@ Same URL, in the client's MCP config:
   "mcpServers": {
     "willhaben": {
       "type": "http",
-      "url": "http://127.0.0.1:8000/mcp"
+      "url": "http://127.0.0.1:8010/mcp"
     }
   }
 }
@@ -90,12 +105,11 @@ Same URL, in the client's MCP config:
 
 ### Claude Desktop
 
-Custom connectors (**Settings > Connectors**) are dialled from Anthropic's
-cloud, so they cannot reach a server bound to your own machine. Two ways
+Custom connectors (**Settings > Connectors**) connect from Anthropic's cloud,
+so they cannot reach a server running only on your own machine. Two ways
 around it:
 
-**Bridge over stdio** with [`mcp-remote`](https://www.npmjs.com/package/mcp-remote)
-(needs [Node.js](https://nodejs.org)). Open **Settings > Developer > Edit
+**Let Claude Desktop start it over stdio.** Open **Settings > Developer > Edit
 Config**, add the `willhaben` entry to `claude_desktop_config.json` and restart
 Claude Desktop:
 
@@ -103,24 +117,26 @@ Claude Desktop:
 {
   "mcpServers": {
     "willhaben": {
-      "command": "cmd",
-      "args": ["/c", "npx", "-y", "mcp-remote", "http://127.0.0.1:8000/mcp"]
+      "command": "python",
+      "args": ["C:\\path\\to\\willhaben-mcp\\main.py", "--stdio"]
     }
   }
 }
 ```
 
-On macOS/Linux drop the Windows wrapper: `"command": "npx"` with
-`"args": ["-y", "mcp-remote", "http://127.0.0.1:8000/mcp"]`.
+Use the full path to `main.py` (forward slashes on macOS/Linux). With uv
+installed, `"command": "uv"` and `"args": ["run", "/path/to/willhaben-mcp/main.py",
+"--stdio"]` also takes care of the dependencies.
 
 **Or expose the server** (cloudflared, ngrok, or run it on a box with a public
 hostname) and add that HTTPS URL under **Settings > Connectors > Add custom
-connector**. That route also makes the tools available in claude.ai and the
-mobile apps, not just the desktop client but the API it talks to is then
-reachable by whoever finds the URL, so put auth in front of it.
+connector**. That way the tools also work in claude.ai and the mobile apps.
+Anyone who finds the URL can use the server too, though, so put
+authentication in front of it.
 
-To stop confirming every call, open **Settings > Connectors > willhaben** and set
-the tools' dropdown on the right to **Always allow**.
+Every tool is marked read-only, so clients that honour that hint won't ask
+before each call. In Claude Desktop you can also open **Settings > Connectors >
+willhaben** and set the tools' dropdown on the right to **Always allow**.
 
 ## Tools
 
@@ -132,54 +148,57 @@ the tools' dropdown on the right to **Always allow**.
 Search the marketplace. `keyword` is optional if you pass a `category`.
 
 Filters:
-- `category` (id or name)
+- `category` (id or name; a name matches in any word order, and a miss
+  suggests the closest categories)
 - `condition` (new, used, refurbished, ...)
 - `clothing_size` and `shoe_size`
 - `color`, `pattern`
 - `brand`
-- region, seller type, price range, PayLivery, last 48h
+- region, seller type, price range, PayLivery (a payment method, not
+  shipping), last 48h
 - `title_only` (every keyword word must be in the **title**, not just anywhere
   in the ad text) and `exclude` (drop titles carrying any of these words, e.g.
-  `["pro", "max", "mini"]` to keep a base model clean of its own trim levels) —
-  both applied here, paging on until `rows` matches are found or 250 ads have
+  `["pro", "max", "mini"]` to keep a base model clean of its own trim levels).
+  Both are applied here, paging on until `rows` matches are found or 250 ads have
   been scanned. `exclude` matches a whole word or a German compound tail
   (`"kabel"` catches `"Ladekabel"`) but never a mere prefix, so `"pro"` spares
   every `"Prozessor"`
-- `require` — terms that must appear **anywhere in the title or description**,
+- `require`: terms that must appear **anywhere in the title or description**,
   with a number and its unit matched however it is spelled: `["128gb"]`,
   `["128 GB"]` and `["128 gb"]` are one filter and each finds all three
   spellings. **This is where specs belong.** Putting them in `keyword` instead
-  is the one mistake that quietly breaks a search — sellers write the same
+  is the one mistake that quietly breaks a search. Sellers write the same
   storage size nine different ways and one ad in five leaves it out of the title
   entirely, so `keyword="iPhone 13 128 GB", title_only=True` finds almost
   nothing while `keyword="iPhone 13", require=["128gb"]` finds what you meant
 - accessories are what none of these fix, because a case carries the phone's
-  exact name too. Excluding nouns like `"case"` or `"akku"` backfires — those
-  appear in real listings' titles (`"Akku 100%"`) — so use a `price_from` floor
+  exact name too. Excluding nouns like `"case"` or `"akku"` backfires, since
+  they appear in real listings' titles (`"Akku 100%"`). Use a `price_from` floor
   at ~15–20% of the product's real price instead (Geizhals'
   `get_model_price_range` gives you that number)
 - `hide_reserved`
-- `handover` (`"versand"` / `"abholung"`) — shipping is not in willhaben's
+- `handover` (`"versand"` / `"abholung"`). Shipping is not in willhaben's
   search response at all, so this costs one detail request per surviving
   candidate, capped at 40 and reported as `detail_lookups`
 - sorting and pagination
 
-Returns a trimmed list of hits, each with a numeric `price_amount`, a `status`
-("active" / "reserved" / "sold") and a `reserved` flag read out of the title —
-willhaben itself always reports an ad as active. `next_offset` and `has_more`
-say where to continue and when the catalogue is exhausted (`next_offset` is
-`null` once it is).
+Returns a trimmed list of hits, each with a numeric `price_amount`, a short
+`url` and a `status` ("active" / "reserved" / "sold") read out of the title,
+because willhaben itself always reports an ad as active. `next_offset` and
+`has_more` say where to continue; once everything is listed, `next_offset` is
+left out. `rows` is capped at 50.
 
-**`list_categories(query, parent_id)`**
+**`list_categories(query, parent_id, limit=50)`**
 
-Find category ids for the `category` filter.
+Find category ids for the `category` filter. Each entry carries its full path
+("Baby / Kind > Kindermode > Mädchenmode > Kleider / Röcke") so similar names stay apart.
 - `query`: search the whole tree by name
 - `parent_id`: browse one level down (omit both for the top-level categories)
 
 The full tree (~3500 categories) ships with the server in
 `data/marktplatz/categories.json`.
 
-**`search_brands(category, term)`**
+**`search_brands(category, term, limit=40)`**
 
 Brands are category-specific and there are 1000+ per category, so this is a
 type-ahead. Pass a category and a search term to get matching brand ids, then
@@ -206,12 +225,16 @@ Search used cars (Gebrauchtwagen). All filters are optional.
 - `warranty`, `condition_report` (Pickerl §57a), region, last 48h, sorting, paging
 
 Enumerated filters accept the willhaben label or id, and an inverted range is
-rejected instead of silently ignored. Results include the car fields (make,
-model, year, mileage, fuel, transmission) and give power as both `power_kw` and
-`power_ps`, since willhaben stores kW while ads and buyers talk in PS. The
+rejected instead of silently ignored. Results name the make and model and
+include year, mileage, fuel and transmission. Power comes as both `power_kw`
+and `power_ps`, since willhaben stores kW while ads and buyers talk in PS.
+
+willhaben tops a make search with a paid dealer listing whatever the filters
+say (a 48k car in an "up to 15k" search). Hits outside the requested ranges are
+dropped and counted in `dropped_off_filter`. The
 filter and make data ships in `data/auto-motor/filters.json`.
 
-**`list_car_makes(query)`**
+**`list_car_makes(query, limit=60)`**
 
 List car make ids for `search_autos`. Optional `query` filters by name.
 
@@ -254,19 +277,19 @@ List the real-estate property types for `search_immobilien`.
 
 **`get_ad_detail(ad_id)`**
 
-Everything about one ad: the full description, all images, itemised attributes,
-category path and precise location. Works across verticals. Run it on an id you
+Everything about one ad: the full description, itemised attributes, category
+path, precise location and how many photos it has. Works across verticals. Run it on an id you
 got from a search. The mobile API caps the description near 600 characters, so
 when it looks cut off the full clean text is pulled from the ad's web page.
 
 This is also the only place willhaben states delivery: `handover`
-("Selbstabholung", "Versand") with `ships` / `pickup_only` alongside it —
+("Selbstabholung", "Versand") with `ships` / `pickup_only` alongside it.
 PayLivery in the search is a payment method and says nothing about shipping.
 
 **`get_ad_images(ad_id, max_images=4)`**
 
-Download an ad's photos server-side and return them as real image content
-(base64), so a vision-capable client sees the pictures instead of just URLs.
+Download an ad's photos server-side (at most 10) and return them as real image
+content, so a vision-capable client sees the pictures instead of just URLs.
 Handy when you want to actually look at a listing.
 
 **`get_ad_seller(ad_id)`**
@@ -281,17 +304,39 @@ plausibility check the ad itself does not answer.
 
 - The detail API only speaks HTTP/2 and needs an `x-wh-application-token`. That
   token is issued by willhaben (valid 30 days) in exchange for a signed request,
-  so `main.py` fetches a live token on demand and refreshes it automatically on a
-  401 -- no token to hand-edit. Only if willhaben rotates the signing key does the
-  stored `WH_TOKEN_REQUEST` stop working; the comment above it in `main.py`
-  explains how to capture a fresh one from the app.
+  so the server fetches a live token on demand and refreshes it automatically on
+  a 401. There is no token to hand-edit. Only if willhaben rotates the signing
+  key does the stored `WH_TOKEN_REQUEST` stop working; the comment above it in
+  `willhaben/api.py` explains how to capture a fresh one from the app.
 - Generated data lives under `data/`, one folder per vertical:
   `data/marktplatz/categories.json` (the ~3500-category tree),
   `data/auto-motor/filters.json` (car filters, options and makes) and
-  `data/immobilien/filters.json` (property types, filters and options). `main.py`
-  loads them at startup. Re-crawl them if willhaben changes.
+  `data/immobilien/filters.json` (property types, filters and options). The
+  server loads them at startup. Re-crawl them if willhaben changes.
+- `main.py` holds the MCP tools; the `willhaben/` package holds the API access
+  (`api.py`), title matching, the marketplace filters, the car and property
+  verticals, and the result summaries.
+- Results go out as compact JSON with empty fields left out, and what all tools
+  share is said once in the server instructions instead of in every tool
+  description. Both keep what the model has to read small.
+- The badges read `coverage.json` and `clones.json` from the `coverage` branch.
+  A daily GitHub Action refreshes them there, so the counts don't add a commit
+  to `main` every day.
 - API details are documented in [`search_api.md`](search_api.md).
 - This uses willhaben's internal API, not an official one. Be nice to it.
+
+## Tests
+
+```bash
+pip install pytest
+pytest
+```
+
+The suite runs offline against a fake willhaben and goes through a real MCP
+client, stdio transport included. `WILLHABEN_LIVE=1 pytest` adds smoke tests
+against the live API. CI runs the offline suite on every push and the live
+tests once a day, which is what notices willhaben changing its app API or
+rotating the token signing key.
 
 ## Disclaimer
 

@@ -125,7 +125,7 @@ yields zero hits.
 Nadelstreifen, `5010057` Kariert, `5010063` Fischgrät, `5010061` Camouflage,
 `5010060` Paisley, `5010055` Motivprint, `5010056` Animalprint, `5010065` Andere.
 
-The full id maps live in `main.py`.
+The full id maps live in `willhaben/marktplatz.py`.
 
 ### Brands (attribute-options)
 
@@ -304,7 +304,7 @@ POST https://app-aggregator.willhaben.at/api/v1/application-data
 `signature` is an HMAC over `organization + salt + timestamp` made with a key
 baked into the app, so a fresh one can't be computed off-device. But the server
 does **not** check the timestamp's age, so **replaying one captured signed request
-keeps returning fresh 30-day tokens** -- that is how `main.py` auto-refreshes,
+keeps returning fresh 30-day tokens** -- that is how `willhaben/api.py` auto-refreshes,
 without hardcoding a token. Re-capture the signed `applicationTokenRequest` from
 the app only if willhaben rotates the signing key (the stored one then `401`s).
 

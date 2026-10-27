@@ -585,12 +585,27 @@ async def _handover(ad_id) -> Optional[list[str]]:
     return _handover_options(_detail_attributes(detail))
 
 
-def _rows(rows: int) -> int:
-    """Validate a page size rather than quietly clamping 0 up to 1."""
+def _rows(rows: int, offset: int = 0) -> int:
+    """Validate a page size rather than quietly clamping 0 up to 1, and the
+    offset that goes with it."""
     rows = int(rows)
     if rows < 1:
         raise ToolError(f"rows must be at least 1 (got {rows}).")
+    if offset < 0:
+        raise ToolError(f"offset must not be negative (got {offset}).")
     return min(rows, MAX_ROWS)
+
+
+# A list tool must not be able to flood the model's context: every category at
+# once is ~190k tokens. Larger asks are clamped; `query` narrows the rest.
+MAX_LIST = 100
+
+
+def _limit(limit: int) -> int:
+    """`limit` clamped to 1..MAX_LIST, for the list tools."""
+    if limit < 1:
+        raise ToolError(f"limit must be at least 1 (got {limit}).")
+    return min(limit, MAX_LIST)
 
 
 def _pagination(rows_found, scanned_to: int, returned: int) -> dict:
@@ -700,7 +715,7 @@ async def search_willhaben(
     if not keyword and category is None:
         raise ToolError("Provide 'keyword' and/or 'category'.")
     _check_ranges(("price", price_from, price_to))
-    rows = _rows(rows)
+    rows = _rows(rows, offset)
     wanted = _tokens(keyword) if (title_only and keyword) else set()
     excluded = [_term_forms(t) for t in (exclude or []) if str(t).strip()]
     required = [_term_forms(t) for t in (require or []) if str(t).strip()]
@@ -1044,7 +1059,9 @@ async def list_categories(
 
     Returns ``{count, categories: [{id, label, parent_id, path, has_children}]}``.
     ``has_children`` tells you whether you can drill further with ``parent_id``.
+    ``limit`` is at most 100.
     """
+    limit = _limit(limit)
     if query:
         q = _norm(query)
         ids = [cid for cid, lab in CATEGORY_LABEL.items() if q in _norm(lab)]
@@ -1086,8 +1103,9 @@ async def search_brands(
 
     Returns ``{count, brands: [{id, label}]}``. Pass the ``id`` back as
     ``brand`` to search_willhaben. Brand ids are strings, category ids ints --
-    both parameters accept either.
+    both parameters accept either. ``limit`` is at most 100.
     """
+    limit = _limit(limit)
     catid = _resolve_category(category)
     params = {
         "categoryId": catid,
@@ -1351,7 +1369,7 @@ async def search_autos(
     """
     _check_ranges(("price", price_from, price_to), ("year", year_from, year_to),
                   ("mileage", mileage_from, mileage_to), ("power", power_from, power_to))
-    rows = _rows(rows)
+    rows = _rows(rows, offset)
     params: dict = {
         "sfId": str(uuid.uuid4()),
         "isLog": "true",
@@ -1416,7 +1434,9 @@ async def search_autos(
 
 @mcp.tool()
 async def list_car_makes(query: Optional[str] = None, limit: int = 60) -> dict:
-    """List car make ids for ``search_autos``. Optional ``query`` filters by name."""
+    """List car make ids for ``search_autos``. Optional ``query`` filters by
+    name; ``limit`` is at most 100."""
+    limit = _limit(limit)
     if query:
         q = _norm(query)
         ids = [i for i, name in CAR_MAKES.items() if q in _norm(name)]
@@ -1601,7 +1621,7 @@ async def search_immobilien(
     catid = _resolve_immo_type(property_type)
     _check_ranges(("price", price_from, price_to), ("area", area_from, area_to),
                   ("plot", plot_from, plot_to))
-    rows = _rows(rows)
+    rows = _rows(rows, offset)
     params: dict = {
         "sfId": str(uuid.uuid4()),
         "isLog": "true",

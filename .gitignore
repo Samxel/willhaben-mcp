@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 .idea
 clones_raw.json
+.pytest_cache/

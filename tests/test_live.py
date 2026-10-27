@@ -7,7 +7,7 @@ import os
 import httpx
 import pytest
 
-import main
+from willhaben import api
 
 pytestmark = [
     pytest.mark.anyio,
@@ -17,11 +17,11 @@ pytestmark = [
 
 @pytest.fixture(autouse=True)
 async def fresh_client(monkeypatch):
-    """main.client binds to the first event loop it runs on, and every test
+    """api.client binds to the first event loop it runs on, and every test
     gets its own loop; so does the token lock."""
     client = httpx.AsyncClient(http2=True)
-    monkeypatch.setattr(main, "client", client)
-    monkeypatch.setattr(main, "_app_token_lock", main.asyncio.Lock())
+    monkeypatch.setattr(api, "client", client)
+    monkeypatch.setattr(api, "_app_token_lock", api.asyncio.Lock())
     yield
     await client.aclose()
 

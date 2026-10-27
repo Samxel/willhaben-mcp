@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import main  # noqa: E402
 from mcp import Client  # noqa: E402
+from willhaben import api, autos  # noqa: E402
 
 
 @pytest.fixture
@@ -49,16 +50,16 @@ class FakeWillhaben:
 @pytest.fixture
 def wh(monkeypatch):
     fake = FakeWillhaben()
-    monkeypatch.setattr(main, "client", httpx.AsyncClient(transport=httpx.MockTransport(fake.handle)))
-    monkeypatch.setattr(main, "_app_token", None)
-    monkeypatch.setattr(main, "_app_token_lock", main.asyncio.Lock())
+    monkeypatch.setattr(api, "client", httpx.AsyncClient(transport=httpx.MockTransport(fake.handle)))
+    monkeypatch.setattr(api, "_app_token", None)
+    monkeypatch.setattr(api, "_app_token_lock", api.asyncio.Lock())
     # model names learned by an earlier test would spare this one its request
-    monkeypatch.setattr(main, "_CAR_MODEL_NAMES", {})
+    monkeypatch.setattr(autos, "MODEL_NAMES", {})
 
     async def no_sleep(_):
         pass
 
-    monkeypatch.setattr(main.asyncio, "sleep", no_sleep)
+    monkeypatch.setattr(api.asyncio, "sleep", no_sleep)
     return fake
 
 

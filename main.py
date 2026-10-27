@@ -1,5 +1,6 @@
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Image
+from mcp.server.mcpserver.exceptions import ToolError
 import httpx
 import asyncio
 import uuid
@@ -73,19 +74,20 @@ def _upstream_message(status: int, what: str) -> str:
 
 
 def _tool_errors(what: str):
-    """Return upstream failures as ``{"error": ...}`` rather than raising a raw
-    httpx error, so every tool fails the same readable way. ``what`` names the
-    thing being fetched, for the message."""
+    """Turn upstream failures into a ``ToolError`` the model can read, rather
+    than a raw httpx error; any exception that is not a ``ToolError`` would only
+    reach it as "Error executing tool". ``what`` names the thing being fetched,
+    for the message."""
     def decorator(fn):
         @functools.wraps(fn)
         async def wrapper(*args, **kwargs):
             try:
                 return await fn(*args, **kwargs)
             except httpx.HTTPStatusError as exc:
-                return {"error": _upstream_message(exc.response.status_code, what)}
+                raise ToolError(_upstream_message(exc.response.status_code, what)) from exc
             except httpx.HTTPError as exc:
-                return {"error": f"could not reach willhaben for the {what} request "
-                                 f"({type(exc).__name__})"}
+                raise ToolError(f"could not reach willhaben for the {what} request "
+                                f"({type(exc).__name__})") from exc
         return wrapper
     return decorator
 
@@ -130,9 +132,9 @@ async def _fetch_application_token() -> str:
             headers=headers,
         )
     except httpx.HTTPError as exc:
-        raise RuntimeError(f"Could not reach willhaben to obtain an application token: {exc}") from exc
+        raise ToolError(f"Could not reach willhaben to obtain an application token: {exc}") from exc
     if response.status_code == 401:
-        raise RuntimeError(
+        raise ToolError(
             "willhaben rejected the stored token-refresh credential (401). Its signing "
             "key was most likely rotated -- capture a fresh applicationTokenRequest from "
             "the app and update WH_TOKEN_REQUEST in main.py (see the comment there)."
@@ -140,7 +142,7 @@ async def _fetch_application_token() -> str:
     response.raise_for_status()
     token = (response.json().get("applicationToken") or {}).get("value")
     if not token:
-        raise RuntimeError(
+        raise ToolError(
             "willhaben returned no application token -- the application-data response "
             "format may have changed."
         )
@@ -326,7 +328,7 @@ def _check_ranges(*bounds) -> None:
     quietly answer with everything."""
     for name, low, high in bounds:
         if low is not None and high is not None and low > high:
-            raise ValueError(
+            raise ToolError(
                 f"{name}_from ({low}) is above {name}_to ({high}) -- an inverted range is "
                 f"ignored by willhaben and would silently return unfiltered results. Swap them."
             )
@@ -372,14 +374,14 @@ def _resolve_category(category: Union[int, str]) -> str:
     if isinstance(category, int) or (isinstance(category, str) and category.strip().isdigit()):
         cid = int(str(category).strip())
         if cid not in CATEGORY_LABEL:
-            raise ValueError(f"Unknown category id {cid}. Use the list_categories tool.")
+            raise ToolError(f"Unknown category id {cid}. Use the list_categories tool.")
         return str(cid)
     matches = _CATEGORY_BY_NAME.get(_norm(category), [])
     if not matches:
-        raise ValueError(f"Unknown category '{category}'. Use list_categories to find the id.")
+        raise ToolError(f"Unknown category '{category}'. Use list_categories to find the id.")
     if len(matches) > 1:
         opts = ", ".join(f"{i} ({CATEGORY_PATH[i]})" for i in matches[:10])
-        raise ValueError(f"Category '{category}' is ambiguous ({len(matches)} matches): {opts}. Please pass an id.")
+        raise ToolError(f"Category '{category}' is ambiguous ({len(matches)} matches): {opts}. Please pass an id.")
     return str(matches[0])
 
 
@@ -399,7 +401,7 @@ def _resolve_sizes(values, mapping: dict, kind: str) -> list[str]:
         elif _norm(s) in ids_by_norm:          # a label like "42" / "46 / S"
             out.append(ids_by_norm[_norm(s)])
         else:
-            raise ValueError(
+            raise ToolError(
                 f"Unknown {kind} '{v}'. Valid values: {', '.join(mapping)}"
             )
     return out
@@ -578,7 +580,7 @@ async def _handover(ad_id) -> Optional[list[str]]:
     """The ad's handover options, or None if the detail could not be read."""
     try:
         detail = await _fetch_detail(ad_id)
-    except (httpx.HTTPError, RuntimeError):
+    except (httpx.HTTPError, ToolError):
         return None
     return _handover_options(_detail_attributes(detail))
 
@@ -587,7 +589,7 @@ def _rows(rows: int) -> int:
     """Validate a page size rather than quietly clamping 0 up to 1."""
     rows = int(rows)
     if rows < 1:
-        raise ValueError(f"rows must be at least 1 (got {rows}).")
+        raise ToolError(f"rows must be at least 1 (got {rows}).")
     return min(rows, MAX_ROWS)
 
 
@@ -696,7 +698,7 @@ async def search_willhaben(
     - ``brand``: resolve it with ``search_brands`` first, then pass the id(s).
     """
     if not keyword and category is None:
-        raise ValueError("Provide 'keyword' and/or 'category'.")
+        raise ToolError("Provide 'keyword' and/or 'category'.")
     _check_ranges(("price", price_from, price_to))
     rows = _rows(rows)
     wanted = _tokens(keyword) if (title_only and keyword) else set()
@@ -924,6 +926,7 @@ async def _fetch_full_description(ad_id: Union[str, int]) -> Optional[str]:
 
 
 @mcp.tool(structured_output=False)
+@_tool_errors("ad")
 async def get_ad_images(ad_id: Union[str, int], max_images: int = 4) -> list:
     """Fetch an ad's photos and return them as images you can actually look at.
 
@@ -941,12 +944,7 @@ async def get_ad_images(ad_id: Union[str, int], max_images: int = 4) -> list:
     like, look at it.
     """
     max_images = max(1, min(int(max_images), 10))
-    try:
-        detail = await _fetch_detail(ad_id)
-    except httpx.HTTPStatusError as exc:
-        return [_upstream_message(exc.response.status_code, "ad")]
-    except httpx.HTTPError as exc:
-        return [f"could not reach willhaben for ad {ad_id} ({type(exc).__name__})"]
+    detail = await _fetch_detail(ad_id)
     images = _widget(detail.get("widgets", []), "PICTURE_SLIDER").get("advertImageList", [])
     urls = [img.get("referenceImageUrl") for img in images if img.get("referenceImageUrl")]
     urls = urls[:max_images]
@@ -993,7 +991,7 @@ async def get_ad_seller(ad_id: Union[str, int]) -> dict:
     seller_id = tms.get("seller_id")
     name = tms.get("seller_name")
     if not seller_id:
-        return {"error": "no seller id on this ad", "name": name}
+        raise ToolError(f"Ad {ad_id} names no seller id (seller name: {name!r}).")
 
     if tms.get("is_private") == "true":
         result: dict = {"id": seller_id, "name": name, "type": "private"}
@@ -1159,14 +1157,14 @@ def _resolve_car_make(make: Union[int, str]) -> str:
     if isinstance(make, int) or (isinstance(make, str) and make.strip().isdigit()):
         mid = int(str(make).strip())
         if mid not in CAR_MAKES:
-            raise ValueError(f"Unknown make id {mid}. Use list_car_makes.")
+            raise ToolError(f"Unknown make id {mid}. Use list_car_makes.")
         return str(mid)
     matches = _CAR_MAKE_BY_NAME.get(_norm(make), [])
     if not matches:
-        raise ValueError(f"Unknown make '{make}'. Use list_car_makes.")
+        raise ToolError(f"Unknown make '{make}'. Use list_car_makes.")
     if len(matches) > 1:
         opts = ", ".join(f"{i} ({CAR_MAKES[i]})" for i in matches[:10])
-        raise ValueError(f"Make '{make}' is ambiguous: {opts}. Please pass an id.")
+        raise ToolError(f"Make '{make}' is ambiguous: {opts}. Please pass an id.")
     return str(matches[0])
 
 
@@ -1185,7 +1183,7 @@ def _resolve_car_select(value, qp: str, human: str) -> list[str]:
         elif _norm(s) in by_norm:
             out.append(by_norm[_norm(s)])
         else:
-            raise ValueError(f"Unknown {human} '{v}'. Options: {', '.join(options.values())}")
+            raise ToolError(f"Unknown {human} '{v}'. Options: {', '.join(options.values())}")
     return out
 
 
@@ -1236,7 +1234,7 @@ async def _resolve_car_model(model: Union[int, str], make_id: Optional[str]) -> 
     if s.isdigit():
         return s
     if make_id is None:
-        raise ValueError("To search by model name, also pass 'make' (or use a model id).")
+        raise ToolError("To search by model name, also pass 'make' (or use a model id).")
     models = await _fetch_car_models(make_id)  # {id: label}
     by_norm = {_norm(l): i for i, l in models.items()}
     mid = by_norm.get(_norm(s))
@@ -1246,9 +1244,9 @@ async def _resolve_car_model(model: Union[int, str], make_id: Optional[str]) -> 
             mid = cands[0][0]
         elif len(cands) > 1:
             opts = ", ".join(f"{l} ({i})" for i, l in cands[:10])
-            raise ValueError(f"Model '{model}' is ambiguous: {opts}. Be more specific or pass an id.")
+            raise ToolError(f"Model '{model}' is ambiguous: {opts}. Be more specific or pass an id.")
     if mid is None:
-        raise ValueError(f"Unknown model '{model}' for this make. Use list_car_models.")
+        raise ToolError(f"Unknown model '{model}' for this make. Use list_car_models.")
     return mid
 
 
@@ -1430,6 +1428,7 @@ async def list_car_makes(query: Optional[str] = None, limit: int = 60) -> dict:
 
 
 @mcp.tool()
+@_tool_errors("car model")
 async def list_car_models(make: Union[int, str]) -> dict:
     """List the models of a car make, for the ``model`` filter of ``search_autos``.
 
@@ -1480,14 +1479,14 @@ def _resolve_immo_type(property_type: Union[int, str]) -> str:
     if isinstance(property_type, int) or (isinstance(property_type, str) and property_type.strip().isdigit()):
         tid = int(str(property_type).strip())
         if tid not in IMMO_TYPES:
-            raise ValueError(f"Unknown property-type id {tid}. Use list_immobilien_types.")
+            raise ToolError(f"Unknown property-type id {tid}. Use list_immobilien_types.")
         return str(tid)
     matches = _IMMO_TYPE_BY_NAME.get(_norm(property_type), [])
     if not matches:
-        raise ValueError(f"Unknown property type '{property_type}'. Use list_immobilien_types.")
+        raise ToolError(f"Unknown property type '{property_type}'. Use list_immobilien_types.")
     if len(matches) > 1:
         opts = ", ".join(f"{i} ({IMMO_TYPES[i]})" for i in matches[:10])
-        raise ValueError(f"Property type '{property_type}' is ambiguous: {opts}. Please pass an id.")
+        raise ToolError(f"Property type '{property_type}' is ambiguous: {opts}. Please pass an id.")
     return str(matches[0])
 
 
@@ -1505,7 +1504,7 @@ def _resolve_options(value, options: dict, human: str) -> list[str]:
         elif _norm(s) in by_norm:
             out.append(by_norm[_norm(s)])
         else:
-            raise ValueError(f"Unknown {human} '{v}'. Options: {', '.join(options.values())}")
+            raise ToolError(f"Unknown {human} '{v}'. Options: {', '.join(options.values())}")
     return out
 
 
@@ -1526,7 +1525,7 @@ def _resolve_rooms(rooms) -> list[str]:
         elif s in _ROOM_BUCKETS:
             out.append(_ROOM_BUCKETS[s])
         else:
-            raise ValueError(f"Unknown rooms value '{v}'. Options: {', '.join(_ROOM_BUCKETS)}")
+            raise ToolError(f"Unknown rooms value '{v}'. Options: {', '.join(_ROOM_BUCKETS)}")
     return out
 
 

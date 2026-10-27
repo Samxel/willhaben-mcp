@@ -8,6 +8,7 @@ import json
 import re
 import html
 import functools
+import inspect
 import unicodedata
 from pathlib import Path
 from datetime import datetime, timezone
@@ -48,7 +49,34 @@ HOST = "127.0.0.1"
 PORT = 8010
 MCP_PATH = "/mcp"
 
-mcp = MCPServer("willhaben-mcp")
+# Sent once when a client connects, so what every tool shares is said here
+# instead of in each tool's description, which the model reads on every turn.
+INSTRUCTIONS = """\
+willhaben.at, Austria's classifieds site: the marketplace, used cars (Auto & \
+Motor) and real estate (Immobilien). Prices are in EUR.
+
+Which tool to use:
+- something to buy: search_willhaben. Scope it with a category from \
+list_categories; brands come from search_brands.
+- a car: search_autos, with makes from list_car_makes and models from \
+list_car_models.
+- a flat, house or plot: search_immobilien, with types from \
+list_immobilien_types.
+- one ad in full: get_ad_detail (full text, attributes, shipping), \
+get_ad_images (the photos themselves) or get_ad_seller (who sells it).
+
+Shared parameters: area is an Austrian state (wien, niederoesterreich, ...). \
+sort_by is actuality (default), price_asc, price_desc, nearest or relevance. \
+rows is at most 50; page on with the next_offset a result returns, has_more \
+says whether anything is left.
+
+status is "active", "reserved" or "sold". willhaben always reports an ad as \
+active, so this is read from the seller's marker in the title.
+
+Fields without a value are left out of results.
+"""
+
+mcp = MCPServer("willhaben-mcp", instructions=INSTRUCTIONS)
 # HTTP/2 is required by the detail API; the search API negotiates it too.
 client = httpx.AsyncClient(http2=True)
 
@@ -87,12 +115,20 @@ def _tool(fn):
     its null fields left out. Left to the SDK, a dict is pretty-printed with a
     two-space indent, which is about a third of a typical result's tokens.
     structured_output stays off: it would send every result a second time as
-    structuredContent and add an output schema to the tool listing."""
+    structuredContent and add an output schema to the tool listing. The
+    docstring is dedented here because only Python 3.13+ does that itself; on
+    older ones every description line would carry four spaces of indent."""
     @functools.wraps(fn)
     async def wrapper(*args, **kwargs):
         result = await fn(*args, **kwargs)
         return json.dumps(_prune(result), ensure_ascii=False, separators=(",", ":"))
-    return mcp.tool(structured_output=False)(wrapper)
+    return mcp.tool(description=inspect.cleandoc(fn.__doc__ or ""), structured_output=False)(wrapper)
+
+
+def _content_tool(fn):
+    """Register `fn` as is, for a tool that returns content blocks rather than a
+    dict; its docstring is dedented like ``_tool``'s."""
+    return mcp.tool(description=inspect.cleandoc(fn.__doc__ or ""), structured_output=False)(fn)
 
 
 def _tool_errors(what: str):
@@ -697,71 +733,48 @@ async def search_willhaben(
     rows: int = 4,
     offset: int = 0,
 ) -> dict:
-    """Search willhaben.at marketplace listings. At least one of ``keyword`` or
-    ``category`` is required.
+    """Search the willhaben marketplace. Needs a ``keyword``, a
+    ``category`` or both.
 
-    Scope to a category when you can (``list_categories`` finds the id): a bare
-    keyword matches the **whole ad text**, so it drags in accessories, bundles
-    and spare parts, and with ``sort_by="price_asc"`` that junk takes the top
-    spots.
+    A bare keyword matches the whole ad text and drags in accessories and spare
+    parts, so scope to a category when you can. willhaben ignores punctuation:
+    "???" in a keyword matches nothing, so write "drei fragezeichen".
 
-    **Put the model in ``keyword`` and every spec in ``require``.** Mixing them
-    is the one mistake that quietly breaks a search: sellers write a storage size
-    as "128GB", "128 GB" or "256Gb" and one ad in five leaves it out of the title
-    altogether, so ``keyword="iPhone 13 128 GB", title_only=True`` finds almost
-    nothing while ``keyword="iPhone 13", require=["128gb"]`` finds what you meant.
+    Put the model in ``keyword`` and every spec in ``require``. Sellers write
+    "128GB", "128 GB" or leave it out of the title, so ``keyword="iPhone 13",
+    require=["128gb"]`` finds what ``keyword="iPhone 13 128 GB"`` misses.
 
-    Three filters, all applied here over what willhaben returns:
+    These filters run here, paging on until ``rows`` matches turn up or 250 ads
+    were scanned (``scanned``):
+    - ``title_only``: every keyword word must be in the title.
+    - ``require``: every term must be in the title or description; a number
+      with its unit matches however it is spelled.
+    - ``exclude``: drop titles carrying any of these words, e.g. ``["pro",
+      "max"]`` to keep a base model clean of its trim levels. A word also hits
+      the tail of a compound ("kabel" in "Ladekabel"), never a prefix ("pro"
+      spares "Prozessor"). If variants turn up, search again with them excluded
+      rather than dropping rows yourself.
+    - ``hide_reserved``: drop reserved and sold ads.
+    - ``handover`` ("versand" / "abholung"): costs one detail request per
+      candidate, at most 40 (``detail_lookups``). ``paylivery`` is a payment
+      method, not shipping.
 
-    - ``title_only=True`` -- every word of ``keyword`` must be in the **title**.
-      A glued-together model code matches either way round ("RTX4070" finds
-      "RTX 4070"), but that is the *only* spacing it forgives: a unit is not
-      normalized, so "128GB" does **not** find "128 GB". Identity only.
-    - ``require`` -- all of these must appear in the **title or description**,
-      e.g. ``["128gb"]``. A number with its unit matches however it is spelled,
-      so ``"128gb"``, ``"128 GB"`` and ``"128 gb"`` are one and the same filter.
-      Capacity, RAM, colour, model year belong here.
-    - ``exclude`` -- drop ads whose **title** carries any of these, e.g.
-      ``["pro", "max", "mini"]``. Matches a whole word or a German compound tail
-      ("kabel" catches "Ladekabel"), never a mere prefix, so "pro" spares
-      "Prozessor". Title only, so a description mentioning the word is safe.
+    Don't exclude ordinary nouns like "case" or "akku", real listings use them
+    too ("Akku 100%"). Keep accessories out with ``price_from`` at about 15-20%
+    of the product's real price instead.
 
-    ``title_only`` cannot separate a base model from its own trim levels -- an
-    "iPhone 13 Pro Max" title does contain every word of "iPhone 13". You cannot
-    know those words up front, so don't guess: search, and if variants turn up,
-    **re-run with them in ``exclude`` instead of dropping rows while you
-    answer** -- the filtered search pages on, so you still get ``rows`` real
-    matches instead of a short list. Leave out what the user did ask for: for
-    "iPhone 13 Pro", exclude only ``["max"]``.
-
-    Model words ("pro", "mini", "ti") are safe to exclude. **Ordinary nouns are
-    not**: "case", "akku" and "display" also appear in real listings' titles
-    ("Akku 100%"), so excluding those throws away what you wanted. For
-    accessories use ``price_from`` at ~15-20% of the real price instead --
-    Geizhals' ``get_model_price_range`` gives you that number.
-
-    Results carry ``price_amount`` (``price`` only when there is no amount, e.g.
-    "auf Anfrage") and ``status`` ("active" / "reserved" / "sold"), read from the
-    title because willhaben always reports an ad as active; ``hide_reserved``
-    drops the reserved and sold ones.
-    ``next_offset`` / ``has_more`` tell you where to continue and when the
-    catalogue is exhausted. ``scanned`` reports how deep the filters had to page
-    (cap 250). The description in a search hit is cut near 200 characters --
-    ``get_ad_detail`` has the full text.
-
-    ``handover`` ("versand" / "abholung") is the only way to filter by shipping,
-    which willhaben omits from its search response entirely (``paylivery`` is a
-    payment method). It costs one detail request per surviving candidate, capped
-    at 40 and reported as ``detail_lookups``.
-
-    - ``category``: id (int) or exact name; includes all subcategories.
-    - ``condition``: "neu", "neuwertig", "generalueberholt", "gebraucht",
-      "defekt", "ausstellungsstueck".
-    - ``clothing_size`` / ``shoe_size``: e.g. "38", "46 / S", "ab 58" / "42",
-      "bis 15" -- only meaningful inside clothing/shoe categories.
-    - ``color`` / ``pattern``: the 16 willhaben colours / 14 patterns, mostly
-      fashion & home.
-    - ``brand``: resolve it with ``search_brands`` first, then pass the id(s).
+    Args:
+        keyword: Search words.
+        category: Category id or name; includes its subcategories.
+        condition: "neu", "neuwertig", "generalueberholt", "gebraucht",
+            "defekt" or "ausstellungsstueck".
+        clothing_size / shoe_size: e.g. "38", "46 / S" or "42"; clothing and
+            shoe categories only.
+        color / pattern: willhaben's colours and patterns, mostly fashion.
+        brand: Brand id(s) from ``search_brands``.
+        seller: "privat" or "haendler".
+        price_from / price_to: Price bounds in EUR.
+        last_48h: Only ads from the last two days.
     """
     if not keyword and category is None:
         raise ToolError("Provide 'keyword' and/or 'category'.")
@@ -900,20 +913,15 @@ async def search_willhaben(
 @_tool
 @_tool_errors("ad")
 async def get_ad_detail(ad_id: Union[str, int]) -> dict:
-    """Fetch the full detail of a single willhaben advert by its id, including
-    the complete (untruncated) description, all images, itemised attributes and
-    precise location. Use it after a search to inspect a listing.
+    """One ad in full: the complete description (also when the app
+    API cuts it), condition, attributes, category, location and ``image_count``.
 
-    Search results only carry a truncated description, so come here whenever you
-    need the full text, the complete attributes, or every detail of one ad (and
-    ``get_ad_images`` when you need to see it).
+    It is the only place that says how an item changes hands: ``handover``
+    ("Selbstabholung", "Versand") with ``ships`` and ``pickup_only``.
 
-    This is also the only place shipping is stated: ``handover`` lists what the
-    seller offers ("Selbstabholung", "Versand"), with ``ships`` and
-    ``pickup_only`` as the ready-made booleans -- ``paylivery`` in the search is
-    a payment method and says nothing about delivery. ``status`` comes from the
-    title marker, the only place willhaben records that an item is already
-    spoken for."""
+    Args:
+        ad_id: The ad id from a search.
+    """
     summary = _summarize_ad_detail(await _fetch_detail(ad_id))
     # the detail API truncates long descriptions near 600 chars; recover the full
     # text from the web page only when it looks cut off.
@@ -991,23 +999,17 @@ async def _fetch_full_description(ad_id: Union[str, int]) -> Optional[str]:
     return html.unescape(_TAG_RE.sub("", text)).strip()
 
 
-@mcp.tool(structured_output=False)
+@_content_tool
 @_tool_errors("ad")
 async def get_ad_images(ad_id: Union[str, int], max_images: int = 4) -> list:
-    """Fetch an ad's photos and return them as images you can actually look at.
+    """The ad's photos as images you can look at, up to
+    ``max_images`` (at most 10). Use them whenever the answer depends on what
+    the item looks like: condition, damage, completeness, or details only a
+    picture shows, such as a label or a screen.
 
-    Downloads up to ``max_images`` photos from willhaben's CDN server-side and
-    returns them as image content blocks (base64), so a vision-capable client
-    sees the real pictures instead of just URLs. Call it with an id from a search.
-
-    Reach for this whenever the pictures carry information you can't take on trust
-    from the text: the description is the seller's claim, the photos are the
-    evidence. Typical cases are judging the real condition (wear, scratches,
-    damage, completeness), reading details that only appear in an image (a
-    screenshot of specs or measurements, a label, a model or serial number, a
-    display), or confirming the item matches the description. As a rule of thumb,
-    if your answer or recommendation depends on what the thing actually looks
-    like, look at it.
+    Args:
+        ad_id: The ad id from a search.
+        max_images: How many photos to fetch. Default 4.
     """
     max_images = max(1, min(int(max_images), 10))
     detail = await _fetch_detail(ad_id)
@@ -1046,11 +1048,12 @@ DEALER_PROFILE_URL = "https://api.willhaben.at/restapi/v2/dealerprofile"
 @_tool
 @_tool_errors("seller")
 async def get_ad_seller(ad_id: Union[str, int]) -> dict:
-    """Look up the seller behind an ad: name, private vs dealer, rating and reply
-    time (private sellers), the member-since / created date, and location.
+    """Who sells an ad: name, private or dealer, rating and reply
+    time for private sellers, member since, and location. For a trust check the
+    ad itself does not answer.
 
-    Use it for a plausibility or trust check the ad itself does not answer -- how
-    long the account has existed, how it is rated, whether it is a dealer.
+    Args:
+        ad_id: The ad id from a search.
     """
     detail = await _fetch_detail(ad_id)
     tms = detail.get("taggingData", {}).get("tmsDataValues", {}).get("tmsData", {})
@@ -1101,16 +1104,14 @@ async def list_categories(
     parent_id: Optional[int] = None,
     limit: int = 50,
 ) -> dict:
-    """Discover willhaben category ids to use as ``category`` in search_willhaben.
+    """Find category ids for ``search_willhaben``. Returns
+    ``{count, categories: [{id, path, has_children}]}``.
 
-    - ``query``: case-insensitive substring match on the category name
-      (searches the whole tree).
-    - ``parent_id``: list the direct child categories of this id. Omit both
-      ``query`` and ``parent_id`` to get the top-level categories.
-
-    Returns ``{count, categories: [{id, path, has_children}]}``.
-    ``has_children`` tells you whether you can drill further with ``parent_id``.
-    ``limit`` is at most 100.
+    Args:
+        query: Part of a category name; searches the whole tree.
+        parent_id: List the subcategories of this id. Omit both for the top
+            level.
+        limit: At most 100. Default 50.
     """
     limit = _limit(limit)
     if query:
@@ -1142,18 +1143,15 @@ async def search_brands(
     term: str = "",
     limit: int = 40,
 ) -> dict:
-    """Look up brand ids for a category, for use as ``brand`` in search_willhaben.
+    """Find brand ids for the ``brand`` filter of
+    ``search_willhaben``. Brands depend on the category and there can be
+    thousands, so pass a ``term``. Broad top categories may have no brand
+    filter at all.
 
-    Brands are category-specific and there can be over a thousand per category,
-    so this is a type-ahead: pass a ``term`` (e.g. "nik") to narrow it down.
-
-    - ``category``: category id or exact name (as in ``list_categories``). Use a
-      specific (leaf) category -- broad top categories may have no brand filter.
-    - ``term``: optional search string for the brand name.
-
-    Returns ``{count, brands: [{id, label}]}``. Pass the ``id`` back as
-    ``brand`` to search_willhaben. Brand ids are strings, category ids ints --
-    both parameters accept either. ``limit`` is at most 100.
+    Args:
+        category: Category id or name; a specific one works best.
+        term: Part of the brand name, e.g. "nik".
+        limit: At most 100. Default 40.
     """
     limit = _limit(limit)
     catid = _resolve_category(category)
@@ -1386,51 +1384,36 @@ async def search_autos(
     rows: int = 4,
     offset: int = 0,
 ) -> dict:
-    """Search willhaben's Auto & Motor cars (Gebrauchtwagen).
+    """Search used cars. Everything is optional.
 
-    Everything is optional; combine what you need.
+    Prefer the structured filters to ``keyword``: they match exact fields, a
+    keyword searches the free text. Use a keyword for what has no filter, such
+    as a chassis code ("E39") on top of make and model.
 
-    Prefer the structured filters over ``keyword`` when a filter exists for what
-    you want: they match exact fields, while ``keyword`` searches the free text
-    and pulls in ads that merely mention a term. Use ``keyword`` for things that
-    have no filter, such as a chassis-generation code (e.g. "E39", where make and
-    model only go down to "5er-Reihe") or a specific equipment phrase, ideally on
-    top of a structured make/model search rather than on its own.
-
-    - ``make``: make id or name (see ``list_car_makes``).
-    - ``model``: model id or name, e.g. "3er-Reihe" or "7er" (needs ``make``;
-      resolved for you). See ``list_car_models`` for the exact names.
-    - ``car_type``: Cabrio / Roadster, Klein-/ Kompaktwagen, Kleinbus,
-      Kombi / Family Van, Limousine, Mopedauto, Sportwagen / Coupé,
-      SUV / Geländewagen.
-    - ``fuel``: Benzin, Diesel, Elektro, Gas, Hybrid Elektro/Benzin,
-      Hybrid Elektro/Diesel, Wasserstoff.
-    - ``transmission``: Automatik, Schaltgetriebe.
-    - ``wheel_drive``: Allrad, Hinterrad, Vorderrad.
-    - ``condition``: Gebrauchtwagen, Jahreswagen, Neuwagen, Oldtimer,
-      Tageszulassung, Unfallwagen, Vorführwagen.
-    - ``color``: exterior colour (Schwarz, Weiß, ...).
-    - ``dealer``: Händler or Privat.
-    - ``equipment``: one or more equipment features (e.g. "Sitzheizung vorne").
-    - ranges: ``price_from/to`` (EUR), ``year_from/to`` (first registration),
-      ``mileage_from/to`` (km), ``power_from/to`` (**kW**, not PS -- 150 PS is
-      110 kW).
-    - ``warranty`` / ``condition_report`` (Pickerl §57a) toggles.
-
-    Names and ids for the enumerated filters are accepted interchangeably, and
-    an inverted range (``price_from`` above ``price_to``) is rejected rather
-    than silently ignored by willhaben.
-
-    Results name the ``make`` and, once that make's models are known, the
-    ``model``. A hit outside the requested ranges (willhaben tops a make search
-    with a paid listing whatever the filters say) is dropped and counted in
+    Hits name ``make`` and ``model`` and give power as ``power_kw`` and
+    ``power_ps``. willhaben tops a make search with a paid listing whatever the
+    filters say; hits outside the requested ranges are dropped and counted in
     ``dropped_off_filter``.
 
-    Each result gives engine power as both ``power_kw`` and ``power_ps``, so a
-    comparison against the "150 PS" in an ad title and against the kW-based
-    ``power_from``/``power_to`` filters both work without converting anything.
-    Paging: ``next_offset`` and ``has_more`` tell you when the list is
-    exhausted.
+    Args:
+        make: Make id or name, see ``list_car_makes``.
+        model: Model id or name, e.g. "3er-Reihe"; needs ``make``.
+        keyword: Free-text words.
+        car_type: e.g. "Kombi / Family Van", "SUV / Geländewagen".
+        fuel: e.g. "Diesel", "Benzin", "Elektro", "Hybrid Elektro/Benzin".
+        transmission: "Automatik" or "Schaltgetriebe".
+        wheel_drive: "Allrad", "Hinterrad" or "Vorderrad".
+        condition: e.g. "Gebrauchtwagen", "Neuwagen", "Oldtimer".
+        color: Exterior colour, e.g. "Schwarz".
+        dealer: "Händler" or "Privat".
+        equipment: e.g. "Sitzheizung vorne", "Anhängerkupplung".
+        price_from / price_to: EUR.
+        year_from / year_to: First registration.
+        mileage_from / mileage_to: Kilometres.
+        power_from / power_to: kW, not PS (150 PS is 110 kW).
+        warranty / condition_report: Only cars with a warranty / a current
+            "Pickerl" (§57a).
+        last_48h: Only ads from the last two days.
     """
     _check_ranges(("price", price_from, price_to), ("year", year_from, year_to),
                   ("mileage", mileage_from, mileage_to), ("power", power_from, power_to))
@@ -1516,8 +1499,12 @@ async def search_autos(
 
 @_tool
 async def list_car_makes(query: Optional[str] = None, limit: int = 60) -> dict:
-    """List car make ids for ``search_autos``. Optional ``query`` filters by
-    name; ``limit`` is at most 100."""
+    """List car make ids for ``search_autos``.
+
+    Args:
+        query: Part of the make name.
+        limit: At most 100. Default 60.
+    """
     limit = _limit(limit)
     if query:
         q = _norm(query)
@@ -1532,9 +1519,11 @@ async def list_car_makes(query: Optional[str] = None, limit: int = 60) -> dict:
 @_tool
 @_tool_errors("car model")
 async def list_car_models(make: Union[int, str]) -> dict:
-    """List the models of a car make, for the ``model`` filter of ``search_autos``.
+    """List the models of a car make, for the ``model`` filter of
+    ``search_autos``.
 
-    ``make`` is a make id or name (see ``list_car_makes``).
+    Args:
+        make: Make id or name.
     """
     make_id = _resolve_car_make(make)
     models = await _fetch_car_models(make_id)
@@ -1674,31 +1663,27 @@ async def search_immobilien(
     rows: int = 4,
     offset: int = 0,
 ) -> dict:
-    """Search willhaben real estate (Immobilien).
+    """Search real estate. ``property_type`` picks buy or rent
+    and the kind of property; everything else is optional, and filters that do
+    not fit the type are ignored by willhaben.
 
-    Pick a ``property_type`` first (it selects buy vs rent and the kind of
-    property); everything else is optional. Use ``list_immobilien_types`` for the
-    available types, e.g. "Wohnung mieten", "Haus kaufen", "Grundstücke",
-    "Gewerbeimmobilie mieten", or "Alle Immobilien" (the default).
+    Hits carry ``price_amount`` and ``price_per_m2`` next to
+    ``living_area_m2``, ``plot_area_m2``, ``rooms``, ``floor``, ``district`` and
+    ``address``.
 
-    - ``object_type``: a specific sub-type (PROPERTY_TYPE), e.g. "Einfamilienhaus",
-      "Dachgeschosswohnung", "Villa".
-    - ``rooms``: "1"–"5", "6-9" or "10+" (number of rooms).
-    - ``features``: fittings like "Garage", "Keller", "Einbauküche", "Fahrstuhl".
-    - ``outdoor``: "Balkon", "Terrasse", "Garten", "Loggia", "Dachterrasse", ...
-    - ranges: ``price_from/to`` (EUR, rent or purchase depending on the type),
-      ``area_from/to`` (living area m²), ``plot_from/to`` (plot area m²).
-    - ``area``: federal state (region).
-
-    Filters that don't apply to the chosen type are ignored by willhaben, but an
-    inverted range (``price_from`` above ``price_to``) is rejected here rather
-    than silently dropped.
-
-    Results carry the numeric ``price_amount`` and ``price_per_m2`` next to the
-    formatted ``price``, so listings can be sorted and compared without parsing
-    the string, plus ``living_area_m2`` / ``plot_area_m2`` / ``rooms`` /
-    ``floor`` / ``district`` / ``address``. Paging: ``next_offset`` and
-    ``has_more`` tell you when the list is exhausted.
+    Args:
+        property_type: Id or name from ``list_immobilien_types``, e.g.
+            "Wohnung mieten", "Haus kaufen", "Grundstücke". Default "Alle
+            Immobilien".
+        keyword: Free-text words.
+        object_type: e.g. "Einfamilienhaus", "Dachgeschosswohnung".
+        rooms: "1" to "5", "6-9" or "10+".
+        features: e.g. "Garage", "Keller", "Einbauküche".
+        outdoor: e.g. "Balkon", "Terrasse", "Garten".
+        price_from / price_to: EUR; rent or purchase price, depending on the type.
+        area_from / area_to: Living area in m².
+        plot_from / plot_to: Plot area in m².
+        last_48h: Only ads from the last two days.
     """
     catid = _resolve_immo_type(property_type)
     _check_ranges(("price", price_from, price_to), ("area", area_from, area_to),
@@ -1762,7 +1747,7 @@ async def search_immobilien(
 
 @_tool
 async def list_immobilien_types() -> dict:
-    """List the willhaben real-estate property types for ``search_immobilien``."""
+    """List the property types for ``search_immobilien``."""
     types = [{"id": i, "label": IMMO_TYPES[i]} for i in sorted(IMMO_TYPES)]
     return {"count": len(types), "types": types}
 

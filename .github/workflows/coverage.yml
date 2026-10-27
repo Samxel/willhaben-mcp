@@ -2,6 +2,14 @@ name: coverage
 on:
   schedule:
     - cron: "30 4 * * *"
+  # run once right after the workflow or its scripts change, so the badges
+  # never wait a day for a first coverage branch
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/coverage.yml
+      - scripts/update_coverage.py
+      - scripts/update_clones.py
   workflow_dispatch:
 concurrency:
   group: coverage-update
@@ -18,18 +26,31 @@ jobs:
           python-version: "3.12"
       - name: Fetch live listing counts
         run: python scripts/update_coverage.py
+      # The counts live on their own branch, so refreshing them every day does
+      # not add a commit to main's history every day.
+      - name: Switch to the coverage branch
+        run: |
+          mv coverage.json scripts/update_clones.py "$RUNNER_TEMP/"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git fetch --depth=1 origin coverage; then
+            git switch -C coverage FETCH_HEAD
+          else
+            git switch --orphan coverage
+          fi
+          mv "$RUNNER_TEMP/coverage.json" coverage.json
+      # GitHub keeps 14 days of clone traffic; clones.json adds each new day to
+      # the copy already on the branch.
       - name: Fetch clone traffic
         env:
           GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN }}
         run: |
           gh api "repos/${{ github.repository }}/traffic/clones" > clones_raw.json
-          python scripts/update_clones.py
+          python "$RUNNER_TEMP/update_clones.py"
+          rm clones_raw.json
       - name: Commit and push if changed
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add coverage.json clones.json
           git diff --staged --quiet && exit 0
           git commit -m "chore: update coverage and clone counts"
-          git pull --rebase origin main
-          git push
+          git push origin coverage

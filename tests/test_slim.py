@@ -31,3 +31,10 @@ async def test_detail_counts_images_and_links_the_ad(wh, call):
 async def test_category_entries_carry_the_path_only(call):
     entry = (await call("list_categories", query="Smartphones / Handys"))["categories"][0]
     assert set(entry) <= {"id", "path", "has_children"}
+
+
+async def test_a_path_splits_back_into_its_category_names(call):
+    """Names carry slashes themselves ("Baby / Kind"), so levels join with ">"."""
+    entry = (await call("list_categories", query="Kleider / Röcke"))["categories"][0]
+    assert entry["path"].split(" > ")[0] == "Baby / Kind"
+    assert entry["path"].endswith(" > Kleider / Röcke")

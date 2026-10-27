@@ -15,7 +15,7 @@ def test_a_name_in_other_order_resolves():
 
 
 async def test_a_near_miss_names_the_closest_categories(wh, call):
-    with pytest.raises(ToolFailed, match=r"Closest: 3345 \(Mode / Accessoires / Damenmode / Schuhe\)"):
+    with pytest.raises(ToolFailed, match=r"Closest: 3345 \(Mode / Accessoires > Damenmode > Schuhe\)"):
         await call("search_willhaben", keyword="sneaker", category="Damenschuhe")
     with pytest.raises(ToolFailed, match="Use list_categories"):
         await call("search_willhaben", keyword="x", category="Gibtsnicht")

@@ -110,7 +110,7 @@ def _index_categories(nodes: list[dict], parent: Optional[int] = None, trail: tu
         CATEGORY_PARENT[cid] = parent
         CATEGORY_CHILDREN.setdefault(parent, []).append(cid)
         path = trail + (label,)
-        CATEGORY_PATH[cid] = " / ".join(path)
+        CATEGORY_PATH[cid] = " > ".join(path)
         _CATEGORY_BY_NAME.setdefault(matching.norm(label), []).append(cid)
         _index_categories(nd.get("children", []), cid, path)
 

@@ -1263,6 +1263,11 @@ def _car_models_from_response(data: dict) -> dict:
     return out
 
 
+# model id -> name, learned from every model list fetched, so a car hit can
+# name its model instead of carrying willhaben's bare id
+_CAR_MODEL_NAMES: dict[str, str] = {}
+
+
 async def _fetch_car_models(make_id: str) -> dict:
     """Fetch a make's models ({id: label}) from the navigation endpoint."""
     params = {"isNavigation": "true", "CAR_MODEL/MAKE": make_id, "sfId": str(uuid.uuid4())}
@@ -1272,7 +1277,9 @@ async def _fetch_car_models(make_id: str) -> dict:
         "Accept": "application/json",
     }
     response = await _get(AUTO_NAV_URL, params=params, headers=headers)
-    return _car_models_from_response(response.json())
+    models = _car_models_from_response(response.json())
+    _CAR_MODEL_NAMES.update(models)
+    return models
 
 
 async def _resolve_car_model(model: Union[int, str], make_id: Optional[str]) -> str:
@@ -1308,11 +1315,14 @@ def _summarize_car(ad: dict) -> dict:
     # ENGINE/EFFECT is kW, the same unit the power_from/power_to filters take --
     # ads and buyers talk in PS, so give both rather than one mislabelled number.
     power_kw = _to_float(attr.get("ENGINE/EFFECT"))
+    make, year = attr.get("CAR_MODEL/MAKE"), attr.get("YEAR_MODEL")
     result.update({
-        "make": attr.get("CAR_MODEL/MAKE"),
-        "model": attr.get("CAR_MODEL/MODEL"),
+        # willhaben only sends ids; the make list ships with the server, model
+        # names are known once that make's models have been fetched
+        "make": CAR_MAKES.get(int(make)) if str(make or "").isdigit() else make,
+        "model": _CAR_MODEL_NAMES.get(str(attr.get("CAR_MODEL/MODEL"))),
         "variant": attr.get("CAR_MODEL/MODEL_SPECIFICATION"),
-        "year": attr.get("YEAR_MODEL"),
+        "year": int(year) if str(year or "").isdigit() else None,
         "mileage_km": int(mileage) if mileage not in (None, "") else None,
         "fuel": attr.get("ENGINE/FUEL_RESOLVED"),
         "transmission": attr.get("TRANSMISSION_RESOLVED"),
@@ -1390,6 +1400,11 @@ async def search_autos(
     an inverted range (``price_from`` above ``price_to``) is rejected rather
     than silently ignored by willhaben.
 
+    Results name the ``make`` and, once that make's models are known, the
+    ``model``. A hit outside the requested ranges (willhaben tops a make search
+    with a paid listing whatever the filters say) is dropped and counted in
+    ``dropped_off_filter``.
+
     Each result gives engine power as both ``power_kw`` and ``power_ps``, so a
     comparison against the "150 PS" in an ad title and against the kW-based
     ``power_from``/``power_to`` filters both work without converting anything.
@@ -1457,8 +1472,25 @@ async def search_autos(
     response = await _get(AUTO_RESULTS_URL, params=params, headers=headers)
     data = response.json()
     ads = data.get("advertSummaryList", {}).get("advertSummary", [])
-    return {**_pagination(data.get("rowsFound"), offset + len(ads), len(ads)),
-            "results": [_summarize_car(ad) for ad in ads]}
+    make_id = params.get("CAR_MODEL/MAKE")
+    model_ids = {str(_attributes_to_dict(ad).get("CAR_MODEL/MODEL")) for ad in ads}
+    if make_id and not model_ids <= _CAR_MODEL_NAMES.keys():
+        try:  # one request per make, then the names are known for good
+            await _fetch_car_models(make_id)
+        except httpx.HTTPError:
+            pass
+    cars = [_summarize_car(ad) for ad in ads]
+    # willhaben puts a paid dealer listing on top of a make search whatever the
+    # filters say (a 48k car for "up to 15k"); drop anything outside them
+    bounds = [("price_amount", price_from, price_to), ("year", year_from, year_to),
+              ("mileage_km", mileage_from, mileage_to), ("power_kw", power_from, power_to)]
+    kept = [c for c in cars if all(c.get(field) is None or ((low is None or c[field] >= low) and
+                                                             (high is None or c[field] <= high))
+                                   for field, low, high in bounds)]
+    result = {**_pagination(data.get("rowsFound"), offset + len(ads), len(kept)), "results": kept}
+    if len(kept) < len(cars):
+        result["dropped_off_filter"] = len(cars) - len(kept)
+    return result
 
 
 @mcp.tool()

@@ -52,6 +52,8 @@ def wh(monkeypatch):
     monkeypatch.setattr(main, "client", httpx.AsyncClient(transport=httpx.MockTransport(fake.handle)))
     monkeypatch.setattr(main, "_app_token", None)
     monkeypatch.setattr(main, "_app_token_lock", main.asyncio.Lock())
+    # model names learned by an earlier test would spare this one its request
+    monkeypatch.setattr(main, "_CAR_MODEL_NAMES", {})
 
     async def no_sleep(_):
         pass

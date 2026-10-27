@@ -73,6 +73,28 @@ def _upstream_message(status: int, what: str) -> str:
     return f"willhaben failed on the {what} request (HTTP {status})"
 
 
+def _prune(value):
+    """Drop the null fields from every dict in `value`; lists keep their items."""
+    if isinstance(value, dict):
+        return {k: _prune(v) for k, v in value.items() if v is not None}
+    if isinstance(value, list):
+        return [_prune(v) for v in value]
+    return value
+
+
+def _tool(fn):
+    """Register `fn` as a tool whose dict result goes out as compact JSON with
+    its null fields left out. Left to the SDK, a dict is pretty-printed with a
+    two-space indent, which is about a third of a typical result's tokens.
+    structured_output stays off: it would send every result a second time as
+    structuredContent and add an output schema to the tool listing."""
+    @functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        result = await fn(*args, **kwargs)
+        return json.dumps(_prune(result), ensure_ascii=False, separators=(",", ":"))
+    return mcp.tool(structured_output=False)(wrapper)
+
+
 def _tool_errors(what: str):
     """Turn upstream failures into a ``ToolError`` the model can read, rather
     than a raw httpx error; any exception that is not a ``ToolError`` would only
@@ -649,7 +671,7 @@ def _pagination(rows_found, scanned_to: int, returned: int) -> dict:
     }
 
 
-@mcp.tool()
+@_tool
 @_tool_errors("search")
 async def search_willhaben(
     keyword: Optional[str] = None,
@@ -875,7 +897,7 @@ async def search_willhaben(
     return result
 
 
-@mcp.tool()
+@_tool
 @_tool_errors("ad")
 async def get_ad_detail(ad_id: Union[str, int]) -> dict:
     """Fetch the full detail of a single willhaben advert by its id, including
@@ -1021,7 +1043,7 @@ SELLER_PROFILE_URL = "https://ad-search.willhaben.at/restapi/v2/sellerprofile"
 DEALER_PROFILE_URL = "https://api.willhaben.at/restapi/v2/dealerprofile"
 
 
-@mcp.tool()
+@_tool
 @_tool_errors("seller")
 async def get_ad_seller(ad_id: Union[str, int]) -> dict:
     """Look up the seller behind an ad: name, private vs dealer, rating and reply
@@ -1073,7 +1095,7 @@ async def get_ad_seller(ad_id: Union[str, int]) -> dict:
     return result
 
 
-@mcp.tool()
+@_tool
 async def list_categories(
     query: Optional[str] = None,
     parent_id: Optional[int] = None,
@@ -1114,7 +1136,7 @@ async def list_categories(
 _TAG_RE = re.compile(r"<[^>]+>")
 
 
-@mcp.tool()
+@_tool
 @_tool_errors("brand")
 async def search_brands(
     category: Union[int, str],
@@ -1334,7 +1356,7 @@ def _summarize_car(ad: dict) -> dict:
     return result
 
 
-@mcp.tool()
+@_tool
 @_tool_errors("car search")
 async def search_autos(
     make: Optional[Union[int, str]] = None,
@@ -1493,7 +1515,7 @@ async def search_autos(
     return result
 
 
-@mcp.tool()
+@_tool
 async def list_car_makes(query: Optional[str] = None, limit: int = 60) -> dict:
     """List car make ids for ``search_autos``. Optional ``query`` filters by
     name; ``limit`` is at most 100."""
@@ -1508,7 +1530,7 @@ async def list_car_makes(query: Optional[str] = None, limit: int = 60) -> dict:
     return {"count": len(ids), "returned": len(makes), "makes": makes}
 
 
-@mcp.tool()
+@_tool
 @_tool_errors("car model")
 async def list_car_models(make: Union[int, str]) -> dict:
     """List the models of a car make, for the ``model`` filter of ``search_autos``.
@@ -1631,7 +1653,7 @@ def _summarize_immo(ad: dict) -> dict:
     return result
 
 
-@mcp.tool()
+@_tool
 @_tool_errors("property search")
 async def search_immobilien(
     property_type: Union[int, str] = "Alle Immobilien",
@@ -1739,7 +1761,7 @@ async def search_immobilien(
     }
 
 
-@mcp.tool()
+@_tool
 async def list_immobilien_types() -> dict:
     """List the willhaben real-estate property types for ``search_immobilien``."""
     types = [{"id": i, "label": IMMO_TYPES[i]} for i in sorted(IMMO_TYPES)]

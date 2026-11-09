@@ -319,9 +319,13 @@
     "2026-11-07": {
       "count": 15,
       "uniques": 8
+    },
+    "2026-11-08": {
+      "count": 15,
+      "uniques": 8
     }
   },
-  "total_clones": 997,
-  "total_uniques": 591,
-  "days_tracked": 80
+  "total_clones": 1012,
+  "total_uniques": 599,
+  "days_tracked": 81
 }

@@ -367,9 +367,13 @@
     "2026-11-19": {
       "count": 4,
       "uniques": 1
+    },
+    "2026-11-20": {
+      "count": 18,
+      "uniques": 10
     }
   },
-  "total_clones": 1150,
-  "total_uniques": 669,
-  "days_tracked": 92
+  "total_clones": 1168,
+  "total_uniques": 679,
+  "days_tracked": 93
 }

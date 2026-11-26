@@ -1,0 +1,698 @@
+[
+ {
+  "id": 101,
+  "label": "Eisenstadt",
+  "state": "burgenland",
+  "postcode": null
+ },
+ {
+  "id": 103,
+  "label": "Eisenstadt - Umgebung",
+  "state": "burgenland",
+  "postcode": null
+ },
+ {
+  "id": 104,
+  "label": "Güssing",
+  "state": "burgenland",
+  "postcode": null
+ },
+ {
+  "id": 105,
+  "label": "Jennersdorf",
+  "state": "burgenland",
+  "postcode": null
+ },
+ {
+  "id": 106,
+  "label": "Mattersburg",
+  "state": "burgenland",
+  "postcode": null
+ },
+ {
+  "id": 107,
+  "label": "Neusiedl am See",
+  "state": "burgenland",
+  "postcode": null
+ },
+ {
+  "id": 108,
+  "label": "Oberpullendorf",
+  "state": "burgenland",
+  "postcode": null
+ },
+ {
+  "id": 109,
+  "label": "Oberwart",
+  "state": "burgenland",
+  "postcode": null
+ },
+ {
+  "id": 102,
+  "label": "Rust (Stadt)",
+  "state": "burgenland",
+  "postcode": null
+ },
+ {
+  "id": 210,
+  "label": "Feldkirchen",
+  "state": "kaernten",
+  "postcode": null
+ },
+ {
+  "id": 203,
+  "label": "Hermagor",
+  "state": "kaernten",
+  "postcode": null
+ },
+ {
+  "id": 201,
+  "label": "Klagenfurt",
+  "state": "kaernten",
+  "postcode": null
+ },
+ {
+  "id": 204,
+  "label": "Klagenfurt Land",
+  "state": "kaernten",
+  "postcode": null
+ },
+ {
+  "id": 205,
+  "label": "Sankt Veit an der Glan",
+  "state": "kaernten",
+  "postcode": null
+ },
+ {
+  "id": 206,
+  "label": "Spittal an der Drau",
+  "state": "kaernten",
+  "postcode": null
+ },
+ {
+  "id": 202,
+  "label": "Villach",
+  "state": "kaernten",
+  "postcode": null
+ },
+ {
+  "id": 207,
+  "label": "Villach Land",
+  "state": "kaernten",
+  "postcode": null
+ },
+ {
+  "id": 208,
+  "label": "Völkermarkt",
+  "state": "kaernten",
+  "postcode": null
+ },
+ {
+  "id": 209,
+  "label": "Wolfsberg",
+  "state": "kaernten",
+  "postcode": null
+ },
+ {
+  "id": 305,
+  "label": "Amstetten",
+  "state": "niederoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 306,
+  "label": "Baden",
+  "state": "niederoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 307,
+  "label": "Bruck an der Leitha",
+  "state": "niederoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 309,
+  "label": "Gmünd",
+  "state": "niederoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 308,
+  "label": "Gänserndorf",
+  "state": "niederoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 310,
+  "label": "Hollabrunn",
+  "state": "niederoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 311,
+  "label": "Horn",
+  "state": "niederoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 312,
+  "label": "Korneuburg",
+  "state": "niederoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 313,
+  "label": "Krems Land",
+  "state": "niederoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 301,
+  "label": "Krems an der Donau",
+  "state": "niederoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 314,
+  "label": "Lilienfeld",
+  "state": "niederoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 315,
+  "label": "Melk",
+  "state": "niederoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 316,
+  "label": "Mistelbach",
+  "state": "niederoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 317,
+  "label": "Mödling",
+  "state": "niederoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 318,
+  "label": "Neunkirchen",
+  "state": "niederoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 302,
+  "label": "Sankt Pölten",
+  "state": "niederoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 319,
+  "label": "Sankt Pölten Land",
+  "state": "niederoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 320,
+  "label": "Scheibbs",
+  "state": "niederoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 321,
+  "label": "Tulln",
+  "state": "niederoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 322,
+  "label": "Waidhofen an der Thaya",
+  "state": "niederoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 303,
+  "label": "Waidhofen an der Ybbs",
+  "state": "niederoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 304,
+  "label": "Wiener Neustadt",
+  "state": "niederoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 323,
+  "label": "Wiener Neustadt Land",
+  "state": "niederoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 325,
+  "label": "Zwettl",
+  "state": "niederoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 404,
+  "label": "Braunau am Inn",
+  "state": "oberoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 405,
+  "label": "Eferding",
+  "state": "oberoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 406,
+  "label": "Freistadt",
+  "state": "oberoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 407,
+  "label": "Gmunden",
+  "state": "oberoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 408,
+  "label": "Grieskirchen",
+  "state": "oberoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 409,
+  "label": "Kirchdorf an der Krems",
+  "state": "oberoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 401,
+  "label": "Linz",
+  "state": "oberoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 410,
+  "label": "Linz Land",
+  "state": "oberoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 411,
+  "label": "Perg",
+  "state": "oberoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 412,
+  "label": "Ried im Innkreis",
+  "state": "oberoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 413,
+  "label": "Rohrbach",
+  "state": "oberoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 414,
+  "label": "Schärding",
+  "state": "oberoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 402,
+  "label": "Steyr",
+  "state": "oberoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 415,
+  "label": "Steyr-Land",
+  "state": "oberoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 416,
+  "label": "Urfahr-Umgebung",
+  "state": "oberoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 417,
+  "label": "Vöcklabruck",
+  "state": "oberoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 403,
+  "label": "Wels",
+  "state": "oberoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 418,
+  "label": "Wels-Land",
+  "state": "oberoesterreich",
+  "postcode": null
+ },
+ {
+  "id": 502,
+  "label": "Hallein",
+  "state": "salzburg",
+  "postcode": null
+ },
+ {
+  "id": 501,
+  "label": "Salzburg Stadt",
+  "state": "salzburg",
+  "postcode": null
+ },
+ {
+  "id": 503,
+  "label": "Salzburg-Umgebung",
+  "state": "salzburg",
+  "postcode": null
+ },
+ {
+  "id": 504,
+  "label": "Sankt Johann im Pongau",
+  "state": "salzburg",
+  "postcode": null
+ },
+ {
+  "id": 505,
+  "label": "Tamsweg",
+  "state": "salzburg",
+  "postcode": null
+ },
+ {
+  "id": 506,
+  "label": "Zell am See",
+  "state": "salzburg",
+  "postcode": null
+ },
+ {
+  "id": 621,
+  "label": "Bruck-Mürzzuschlag",
+  "state": "steiermark",
+  "postcode": null
+ },
+ {
+  "id": 603,
+  "label": "Deutschlandsberg",
+  "state": "steiermark",
+  "postcode": null
+ },
+ {
+  "id": 601,
+  "label": "Graz",
+  "state": "steiermark",
+  "postcode": null
+ },
+ {
+  "id": 606,
+  "label": "Graz-Umgebung",
+  "state": "steiermark",
+  "postcode": null
+ },
+ {
+  "id": 622,
+  "label": "Hartberg-Fürstenfeld",
+  "state": "steiermark",
+  "postcode": null
+ },
+ {
+  "id": 610,
+  "label": "Leibnitz",
+  "state": "steiermark",
+  "postcode": null
+ },
+ {
+  "id": 611,
+  "label": "Leoben",
+  "state": "steiermark",
+  "postcode": null
+ },
+ {
+  "id": 612,
+  "label": "Liezen",
+  "state": "steiermark",
+  "postcode": null
+ },
+ {
+  "id": 614,
+  "label": "Murau",
+  "state": "steiermark",
+  "postcode": null
+ },
+ {
+  "id": 620,
+  "label": "Murtal",
+  "state": "steiermark",
+  "postcode": null
+ },
+ {
+  "id": 623,
+  "label": "Südoststeiermark",
+  "state": "steiermark",
+  "postcode": null
+ },
+ {
+  "id": 616,
+  "label": "Voitsberg",
+  "state": "steiermark",
+  "postcode": null
+ },
+ {
+  "id": 617,
+  "label": "Weiz",
+  "state": "steiermark",
+  "postcode": null
+ },
+ {
+  "id": 702,
+  "label": "Imst",
+  "state": "tirol",
+  "postcode": null
+ },
+ {
+  "id": 701,
+  "label": "Innsbruck",
+  "state": "tirol",
+  "postcode": null
+ },
+ {
+  "id": 703,
+  "label": "Innsbruck-Land",
+  "state": "tirol",
+  "postcode": null
+ },
+ {
+  "id": 704,
+  "label": "Kitzbühel",
+  "state": "tirol",
+  "postcode": null
+ },
+ {
+  "id": 705,
+  "label": "Kufstein",
+  "state": "tirol",
+  "postcode": null
+ },
+ {
+  "id": 706,
+  "label": "Landeck",
+  "state": "tirol",
+  "postcode": null
+ },
+ {
+  "id": 707,
+  "label": "Lienz",
+  "state": "tirol",
+  "postcode": null
+ },
+ {
+  "id": 708,
+  "label": "Reutte",
+  "state": "tirol",
+  "postcode": null
+ },
+ {
+  "id": 709,
+  "label": "Schwaz",
+  "state": "tirol",
+  "postcode": null
+ },
+ {
+  "id": 801,
+  "label": "Bludenz",
+  "state": "vorarlberg",
+  "postcode": null
+ },
+ {
+  "id": 802,
+  "label": "Bregenz",
+  "state": "vorarlberg",
+  "postcode": null
+ },
+ {
+  "id": 803,
+  "label": "Dornbirn",
+  "state": "vorarlberg",
+  "postcode": null
+ },
+ {
+  "id": 804,
+  "label": "Feldkirch",
+  "state": "vorarlberg",
+  "postcode": null
+ },
+ {
+  "id": 117223,
+  "label": "Wien, 01. Bezirk, Innere Stadt",
+  "state": "wien",
+  "postcode": "1010"
+ },
+ {
+  "id": 117224,
+  "label": "Wien, 02. Bezirk, Leopoldstadt",
+  "state": "wien",
+  "postcode": "1020"
+ },
+ {
+  "id": 117225,
+  "label": "Wien, 03. Bezirk, Landstraße",
+  "state": "wien",
+  "postcode": "1030"
+ },
+ {
+  "id": 117226,
+  "label": "Wien, 04. Bezirk, Wieden",
+  "state": "wien",
+  "postcode": "1040"
+ },
+ {
+  "id": 117227,
+  "label": "Wien, 05. Bezirk, Margareten",
+  "state": "wien",
+  "postcode": "1050"
+ },
+ {
+  "id": 117228,
+  "label": "Wien, 06. Bezirk, Mariahilf",
+  "state": "wien",
+  "postcode": "1060"
+ },
+ {
+  "id": 117229,
+  "label": "Wien, 07. Bezirk, Neubau",
+  "state": "wien",
+  "postcode": "1070"
+ },
+ {
+  "id": 117230,
+  "label": "Wien, 08. Bezirk, Josefstadt",
+  "state": "wien",
+  "postcode": "1080"
+ },
+ {
+  "id": 117231,
+  "label": "Wien, 09. Bezirk, Alsergrund",
+  "state": "wien",
+  "postcode": "1090"
+ },
+ {
+  "id": 117232,
+  "label": "Wien, 10. Bezirk, Favoriten",
+  "state": "wien",
+  "postcode": "1100"
+ },
+ {
+  "id": 117233,
+  "label": "Wien, 11. Bezirk, Simmering",
+  "state": "wien",
+  "postcode": "1110"
+ },
+ {
+  "id": 117234,
+  "label": "Wien, 12. Bezirk, Meidling",
+  "state": "wien",
+  "postcode": "1120"
+ },
+ {
+  "id": 117235,
+  "label": "Wien, 13. Bezirk, Hietzing",
+  "state": "wien",
+  "postcode": "1130"
+ },
+ {
+  "id": 117236,
+  "label": "Wien, 14. Bezirk, Penzing",
+  "state": "wien",
+  "postcode": "1140"
+ },
+ {
+  "id": 117237,
+  "label": "Wien, 15. Bezirk, Rudolfsheim-Fünfhaus",
+  "state": "wien",
+  "postcode": "1150"
+ },
+ {
+  "id": 117238,
+  "label": "Wien, 16. Bezirk, Ottakring",
+  "state": "wien",
+  "postcode": "1160"
+ },
+ {
+  "id": 117239,
+  "label": "Wien, 17. Bezirk, Hernals",
+  "state": "wien",
+  "postcode": "1170"
+ },
+ {
+  "id": 117240,
+  "label": "Wien, 18. Bezirk, Währing",
+  "state": "wien",
+  "postcode": "1180"
+ },
+ {
+  "id": 117241,
+  "label": "Wien, 19. Bezirk, Döbling",
+  "state": "wien",
+  "postcode": "1190"
+ },
+ {
+  "id": 117242,
+  "label": "Wien, 20. Bezirk, Brigittenau",
+  "state": "wien",
+  "postcode": "1200"
+ },
+ {
+  "id": 117243,
+  "label": "Wien, 21. Bezirk, Floridsdorf",
+  "state": "wien",
+  "postcode": "1210"
+ },
+ {
+  "id": 117244,
+  "label": "Wien, 22. Bezirk, Donaustadt",
+  "state": "wien",
+  "postcode": "1220"
+ },
+ {
+  "id": 117245,
+  "label": "Wien, 23. Bezirk, Liesing",
+  "state": "wien",
+  "postcode": "1230"
+ }
+]

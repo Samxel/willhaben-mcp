@@ -28,7 +28,8 @@ async def test_descriptions_are_dedented_and_the_listing_stays_small():
         assert not tool.description.startswith(" ")
     listing = json.dumps([tool.model_dump(exclude_none=True) for tool in tools], ensure_ascii=False)
     # ~19.3k before titles, null branches and doubled enums left the schemas
-    assert len(listing) < 15000
+    # (~13.8k after); the car and property filters and district added ~1.3k
+    assert len(listing) < 16000
 
 
 async def test_schemas_carry_no_titles_null_branches_or_doubled_enums():

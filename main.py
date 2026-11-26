@@ -19,7 +19,7 @@ from mcp.server.mcpserver import Image
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from willhaben import api, autos, immobilien, marktplatz, matching, summaries
+from willhaben import api, autos, immobilien, marktplatz, matching, regions, summaries
 
 HOST = "127.0.0.1"
 PORT = 8010
@@ -41,7 +41,9 @@ list_immobilien_types.
 - one ad in full: get_ad_detail (full text, attributes, shipping), \
 get_ad_images (the photos themselves) or get_ad_seller (who sells it).
 
-Shared parameters: area is an Austrian state (wien, niederoesterreich, ...). \
+Shared parameters: area is an Austrian state (wien, niederoesterreich, ...); \
+district narrows it to Bezirke, by name ("Graz", "Innsbruck-Land", "Neubau") \
+or Vienna postcode ("1070"). \
 sort_by is actuality (default), price_asc, price_desc, nearest or relevance. \
 rows is at most 50; page on with the next_offset a result returns, has_more \
 says whether anything is left.
@@ -327,6 +329,7 @@ async def search_willhaben(
     brand: Optional[Many[Union[int, str]]] = None,
     sort_by: api.SortBy = "actuality",
     area: Optional[Many[api.Bundesland]] = None,
+    district: Optional[Many[Union[int, str]]] = None,
     seller: Optional[Many[api.Seller]] = None,
     price_from: Optional[float] = None,
     price_to: Optional[float] = None,
@@ -424,10 +427,9 @@ async def search_willhaben(
     if tree_attrs:
         params["treeAttributes"] = tree_attrs
 
-    if area is not None:
-        params["areaId"] = (
-            [api.area_id[a] for a in area] if isinstance(area, list) else api.area_id[area]
-        )
+    areas = regions.area_ids(area, district, api.area_id)
+    if areas:
+        params["areaId"] = areas
 
     if seller is not None:
         params["ISPRIVATE"] = (
@@ -708,6 +710,7 @@ async def search_autos(
     hide_reserved: bool = False,
     sort_by: api.SortBy = "actuality",
     area: Optional[Many[api.Bundesland]] = None,
+    district: Optional[Many[Union[int, str]]] = None,
     last_48h: bool = False,
     rows: int = 4,
     offset: int = 0,
@@ -794,10 +797,9 @@ async def search_autos(
         params["CONDITION_REPORT"] = 1
     if last_48h:
         params["periode"] = 2
-    if area is not None:
-        params["areaId"] = (
-            [api.area_id[a] for a in area] if isinstance(area, list) else api.area_id[area]
-        )
+    areas = regions.area_ids(area, district, api.area_id)
+    if areas:
+        params["areaId"] = areas
 
     make_id = params.get("CAR_MODEL/MAKE")
 
@@ -888,6 +890,8 @@ async def search_immobilien(
     hide_reserved: bool = False,
     sort_by: api.SortBy = "actuality",
     area: Optional[Many[api.Bundesland]] = None,
+    district: Optional[Many[Union[int, str]]] = None,
+    postcode: Optional[Many[str]] = None,
     last_48h: bool = False,
     rows: int = 4,
     offset: int = 0,
@@ -917,9 +921,17 @@ async def search_immobilien(
         price_from / price_to: EUR; rent or purchase price, depending on the type.
         area_from / area_to: Living area in m².
         plot_from / plot_to: Plot area in m².
+        postcode: Exact postcodes, e.g. "1070" or "6020"; checked on each hit,
+            so pair one outside Vienna with ``area`` or ``district``.
         last_48h: Only ads from the last two days.
     """
     catid = immobilien.resolve_type(property_type)
+    # a Vienna postcode is a district willhaben can filter by itself, so the
+    # scan below only has to confirm it instead of searching all of Austria
+    if postcode and not district:
+        codes = [str(c).strip() for c in postcode]
+        if all(c in regions.BY_POSTCODE for c in codes):
+            district = codes
     _check_ranges(("price", price_from, price_to), ("area", area_from, area_to),
                   ("plot", plot_from, plot_to))
     rows = _rows(rows, offset)
@@ -956,18 +968,20 @@ async def search_immobilien(
 
     if last_48h:
         params["periode"] = 2
-    if area is not None:
-        params["areaId"] = (
-            [api.area_id[a] for a in area] if isinstance(area, list) else api.area_id[area]
-        )
+    areas = regions.area_ids(area, district, api.area_id)
+    if areas:
+        params["areaId"] = areas
 
     url = f"{immobilien.IMMO_RESULTS_BASE}/{immobilien.IMMO_SEARCH_PREFIX}/{catid}"
 
     async def summarize_page(ads):
         return [immobilien.summarize_immo(ad) for ad in ads]
 
+    wanted_codes = {str(c).strip() for c in (postcode or []) if str(c).strip()}
     keep, post_filtered = _keeper(keyword, title_only=False, require=require, exclude=exclude,
-                                  hide_reserved=hide_reserved)
+                                  hide_reserved=hide_reserved,
+                                  extra=(lambda hit: hit.get("postcode") in wanted_codes) if wanted_codes else None)
+    post_filtered = post_filtered or bool(wanted_codes)
     result = await _scan(url, params, rows=rows, offset=offset, summarize_page=summarize_page,
                          keep=keep, post_filtered=post_filtered)
     return {"property_type": immobilien.IMMO_TYPES.get(int(catid)), **result}

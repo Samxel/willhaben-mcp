@@ -9,9 +9,10 @@ import inspect
 import json
 import logging
 import uuid
-from typing import Literal, Optional, Union
+from typing import Annotated, Literal, Optional, TypeVar, Union
 
 import httpx
+from pydantic import BeforeValidator
 from mcp.server import MCPServer
 from mcp.server.caching import CacheHint
 from mcp.server.mcpserver import Image
@@ -63,6 +64,19 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(mes
 MAX_ROWS = 50
 
 
+T = TypeVar("T")
+
+
+def _listify(value):
+    return value if value is None or isinstance(value, list) else [value]
+
+
+# One value or a list of them. The schema shows only the list, so an enum is
+# listed once instead of twice (as a value and as list items); a bare value is
+# still accepted and wrapped.
+Many = Annotated[list[T], BeforeValidator(_listify)]
+
+
 def _prune(value):
     """Drop the null fields from every dict in `value`; lists keep their items."""
     if isinstance(value, dict):
@@ -79,14 +93,50 @@ ONLINE = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
 LOCAL = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
 
 
+def _slim_schema(node):
+    """Cut what pydantic adds to every parameter but no model needs: a
+    ``title`` that repeats the name, and for an optional parameter the
+    ``"default": null`` and the ``null`` branch of its ``anyOf`` (leaving it out
+    is how it is omitted). Validation still runs on the full Python signature,
+    so this only shortens what the model reads on every turn."""
+    if not isinstance(node, dict):
+        return node
+    node.pop("title", None)
+    if "default" in node and node["default"] is None:
+        del node["default"]
+        branches = [b for b in node.get("anyOf", []) if b != {"type": "null"}]
+        if branches:
+            del node["anyOf"]
+            if len(branches) == 1:
+                node.update(branches[0])
+            else:
+                node["anyOf"] = branches
+    for key in ("properties", "$defs"):
+        for child in node.get(key, {}).values():
+            _slim_schema(child)
+    for key in ("items", "additionalProperties"):
+        _slim_schema(node.get(key))
+    for branch in node.get("anyOf", []):
+        _slim_schema(branch)
+    return node
+
+
+def _register(fn, annotations: ToolAnnotations):
+    """Register `fn` (its docstring dedented, since only Python 3.13+ does that
+    itself) and slim its parameter schema."""
+    mcp.tool(description=inspect.cleandoc(fn.__doc__ or ""), annotations=annotations,
+             structured_output=False)(fn)
+    tool = mcp._tool_manager.get_tool(fn.__name__)
+    tool.parameters = _slim_schema(tool.parameters)
+    return fn
+
+
 def _tool(fn=None, *, annotations: ToolAnnotations = ONLINE):
     """Register `fn` as a tool whose dict result goes out as compact JSON with
     its null fields left out. Left to the SDK, a dict is pretty-printed with a
     two-space indent, which is about a third of a typical result's tokens.
     structured_output stays off: it would send every result a second time as
-    structuredContent and add an output schema to the tool listing. The
-    docstring is dedented here because only Python 3.13+ does that itself; on
-    older ones every description line would carry four spaces of indent."""
+    structuredContent and add an output schema to the tool listing."""
     if fn is None:
         return functools.partial(_tool, annotations=annotations)
 
@@ -94,15 +144,13 @@ def _tool(fn=None, *, annotations: ToolAnnotations = ONLINE):
     async def wrapper(*args, **kwargs):
         result = await fn(*args, **kwargs)
         return json.dumps(_prune(result), ensure_ascii=False, separators=(",", ":"))
-    return mcp.tool(description=inspect.cleandoc(fn.__doc__ or ""), annotations=annotations,
-                    structured_output=False)(wrapper)
+    return _register(wrapper, annotations)
 
 
 def _content_tool(fn):
     """Register `fn` as is, for a tool that returns content blocks rather than a
-    dict; its docstring is dedented like ``_tool``'s."""
-    return mcp.tool(description=inspect.cleandoc(fn.__doc__ or ""), annotations=ONLINE,
-                    structured_output=False)(fn)
+    dict."""
+    return _register(fn, ONLINE)
 
 
 def _check_ranges(*bounds) -> None:
@@ -176,15 +224,15 @@ async def search_willhaben(
     keyword: Optional[str] = None,
     *,
     category: Optional[Union[int, str]] = None,
-    condition: Optional[Union[marktplatz.Condition, list[marktplatz.Condition]]] = None,
-    clothing_size: Optional[Union[str, list[str]]] = None,
-    shoe_size: Optional[Union[str, list[str]]] = None,
-    color: Optional[Union[marktplatz.Color, list[marktplatz.Color]]] = None,
-    pattern: Optional[Union[marktplatz.Pattern, list[marktplatz.Pattern]]] = None,
-    brand: Optional[Union[int, str, list[Union[int, str]]]] = None,
+    condition: Optional[Many[marktplatz.Condition]] = None,
+    clothing_size: Optional[Many[str]] = None,
+    shoe_size: Optional[Many[str]] = None,
+    color: Optional[Many[marktplatz.Color]] = None,
+    pattern: Optional[Many[marktplatz.Pattern]] = None,
+    brand: Optional[Many[Union[int, str]]] = None,
     sort_by: api.SortBy = "actuality",
-    area: Optional[Union[api.Bundesland, list[api.Bundesland]]] = None,
-    seller: Optional[Union[api.Seller, list[api.Seller]]] = None,
+    area: Optional[Many[api.Bundesland]] = None,
+    seller: Optional[Many[api.Seller]] = None,
     price_from: Optional[float] = None,
     price_to: Optional[float] = None,
     paylivery: Optional[bool] = None,
@@ -609,14 +657,14 @@ async def search_autos(
     model: Optional[Union[int, str]] = None,
     *,
     keyword: Optional[str] = None,
-    car_type: Optional[Union[str, list[str]]] = None,
-    fuel: Optional[Union[str, list[str]]] = None,
-    transmission: Optional[Union[str, list[str]]] = None,
-    wheel_drive: Optional[Union[str, list[str]]] = None,
-    condition: Optional[Union[str, list[str]]] = None,
-    color: Optional[Union[str, list[str]]] = None,
-    dealer: Optional[Union[str, list[str]]] = None,
-    equipment: Optional[Union[str, list[str]]] = None,
+    car_type: Optional[Many[str]] = None,
+    fuel: Optional[Many[str]] = None,
+    transmission: Optional[Many[str]] = None,
+    wheel_drive: Optional[Many[str]] = None,
+    condition: Optional[Many[str]] = None,
+    color: Optional[Many[str]] = None,
+    dealer: Optional[Many[str]] = None,
+    equipment: Optional[Many[str]] = None,
     price_from: Optional[float] = None,
     price_to: Optional[float] = None,
     year_from: Optional[int] = None,
@@ -628,7 +676,7 @@ async def search_autos(
     warranty: bool = False,
     condition_report: bool = False,
     sort_by: api.SortBy = "actuality",
-    area: Optional[Union[api.Bundesland, list[api.Bundesland]]] = None,
+    area: Optional[Many[api.Bundesland]] = None,
     last_48h: bool = False,
     rows: int = 4,
     offset: int = 0,
@@ -786,10 +834,10 @@ async def search_immobilien(
     property_type: Union[int, str] = "Alle Immobilien",
     *,
     keyword: Optional[str] = None,
-    object_type: Optional[Union[str, list[str]]] = None,
+    object_type: Optional[Many[str]] = None,
     rooms: Optional[Union[str, int, list]] = None,
-    features: Optional[Union[str, list[str]]] = None,
-    outdoor: Optional[Union[str, list[str]]] = None,
+    features: Optional[Many[str]] = None,
+    outdoor: Optional[Many[str]] = None,
     price_from: Optional[float] = None,
     price_to: Optional[float] = None,
     area_from: Optional[int] = None,
@@ -797,7 +845,7 @@ async def search_immobilien(
     plot_from: Optional[int] = None,
     plot_to: Optional[int] = None,
     sort_by: api.SortBy = "actuality",
-    area: Optional[Union[api.Bundesland, list[api.Bundesland]]] = None,
+    area: Optional[Many[api.Bundesland]] = None,
     last_48h: bool = False,
     rows: int = 4,
     offset: int = 0,

@@ -21,7 +21,6 @@ API der willhaben-App und gibt der KI die wichtigen Felder zurück.
   <a href="#in-claude-einbinden-und-andere-mcp-clients">In Claude einbinden</a> ·
   <a href="#selbst-starten">Starten</a> ·
   <a href="#tools">Tools</a> ·
-  <a href="#hinweise">Hinweise</a> ·
   <a href="#haftungsausschluss">Haftungsausschluss</a> ·
   <a href="#lizenz">Lizenz</a>
 </p>
@@ -366,42 +365,6 @@ einzuschätzen, ob ein Angebot vertrauenswürdig ist, wenn die Anzeige selbst da
 nicht beantwortet.
 
 </details>
-
-## Hinweise
-
-- Die Detail-API spricht nur HTTP/2 und braucht ein
-  `x-wh-application-token`. Dieses Token stellt willhaben (30 Tage gültig)
-  gegen eine signierte Anfrage aus. Der Server holt bei Bedarf ein aktuelles
-  Token und erneuert es bei einem 401 automatisch. Es gibt kein Token, das man
-  von Hand eintragen müsste. Nur wenn willhaben den Signaturschlüssel wechselt,
-  funktioniert das gespeicherte `WH_TOKEN_REQUEST` nicht mehr; der Kommentar
-  darüber in `willhaben/api.py` erklärt, wie man aus der App ein neues
-  mitschneidet.
-- Erzeugte Daten liegen unter `willhaben/data/`, ein Ordner pro Bereich:
-  `marktplatz/categories.json` (der Baum mit rund 3500 Kategorien),
-  `auto-motor/filters.json` (Autofilter, Optionen und Marken),
-  `immobilien/filters.json` (Immobilienarten, Filter und Optionen) und
-  `regions/districts.json` (die 116 Bezirke mit ihren Gebiets-IDs, neu erzeugt
-  von `scripts/build_districts.py`). Der Server lädt sie beim Start. Neu
-  abrufen, wenn willhaben etwas ändert.
-- `willhaben/server.py` enthält die MCP-Tools; `main.py` startet den Server
-  nur aus einem Klon heraus. Daneben im Paket `willhaben`: der API-Zugang
-  (`api.py`), der Titelabgleich, die Marktplatzfilter, die Bereiche Autos und
-  Immobilien, die Bezirke und die Ergebniszusammenfassungen.
-- Ergebnisse gehen als kompaktes JSON ohne leere Felder raus, die
-  Tool-Schemas nennen jede Auswahl nur einmal und lassen die Titel und
-  `null`-Zweige weg, die pydantic sonst einfügt, und was alle Tools gemeinsam
-  haben, steht einmal in den Server-Anweisungen statt in jeder
-  Tool-Beschreibung. All das hält klein, was das Modell lesen muss.
-- Releases: `version` in `pyproject.toml` und `manifest.json` erhöhen, dann
-  einen Tag wie `v1.1` pushen. Eine Patch-Version `.0` kann man im Tag
-  weglassen, `v1.1` veröffentlicht also 1.1.0. Der Release-Workflow lässt die
-  Tests laufen, baut Wheel, sdist und das `.mcpb`-Bundle und hängt sie an ein
-  GitHub-Release.
-- Die Badges holen ihre Zahlen aus `coverage.json` und `clones.json` im
-  Branch `coverage`. Eine tägliche GitHub Action aktualisiert sie dort, damit
-  die Zahlen nicht jeden Tag einen Commit in `main` erzeugen.
-- Die API ist in [`search_api.md`](search_api.md) dokumentiert (auf Englisch).
 
 ## Haftungsausschluss
 

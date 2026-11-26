@@ -21,7 +21,6 @@ app's API and returning the important fields to the AI.
   <a href="#add-it-to-claude-and-other-mcp-clients">Add to Claude</a> ·
   <a href="#run-it-yourself">Run</a> ·
   <a href="#tools">Tools</a> ·
-  <a href="#notes">Notes</a> ·
   <a href="#disclaimer">Disclaimer</a> ·
   <a href="#license">License</a>
 </p>
@@ -343,39 +342,6 @@ sellers), the member-since / created date, and location. Useful for a trust or
 plausibility check the ad itself does not answer.
 
 </details>
-
-## Notes
-
-- The detail API only speaks HTTP/2 and needs an `x-wh-application-token`. That
-  token is issued by willhaben (valid 30 days) in exchange for a signed request,
-  so the server fetches a live token on demand and refreshes it automatically on
-  a 401. There is no token to hand-edit. Only if willhaben rotates the signing
-  key does the stored `WH_TOKEN_REQUEST` stop working; the comment above it in
-  `willhaben/api.py` explains how to capture a fresh one from the app.
-- Generated data lives under `willhaben/data/`, one folder per vertical:
-  `marktplatz/categories.json` (the ~3500-category tree),
-  `auto-motor/filters.json` (car filters, options and makes),
-  `immobilien/filters.json` (property types, filters and options) and
-  `regions/districts.json` (the 116 districts with their area ids, rebuilt by
-  `scripts/build_districts.py`). The server loads them at startup. Re-crawl
-  them if willhaben changes.
-- `willhaben/server.py` holds the MCP tools; `main.py` only starts it from a
-  checkout. Next to it in the `willhaben` package: the API access (`api.py`),
-  title matching, the marketplace filters, the car and property verticals, the
-  districts and the result summaries.
-- Results go out as compact JSON with empty fields left out, tool schemas list
-  each choice once and leave out the titles and `null` branches pydantic would
-  add, and what all tools share is said once in the server instructions instead
-  of in every tool description. All of it keeps what the model has to read
-  small.
-- Releases: bump `version` in `pyproject.toml` and `manifest.json`, then push a
-  tag such as `v1.1`. A `.0` patch may be left off the tag, so `v1.1` releases
-  1.1.0. The release workflow runs the tests, builds the wheel, the sdist and
-  the `.mcpb` bundle and attaches them to a GitHub release.
-- The badges read `coverage.json` and `clones.json` from the `coverage` branch.
-  A daily GitHub Action refreshes them there, so the counts don't add a commit
-  to `main` every day.
-- API details are documented in [`search_api.md`](search_api.md).
 
 ## Disclaimer
 

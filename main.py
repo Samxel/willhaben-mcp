@@ -455,18 +455,10 @@ async def search_willhaben(
                        keep=keep, post_filtered=post_filtered, handover=handover)
 
 
-@_tool
-@api.tool_errors("ad")
-async def get_ad_detail(ad_id: Union[str, int]) -> dict:
-    """One ad in full: the complete description (also when the app
-    API cuts it), condition, attributes, category, location and ``image_count``.
+MAX_DETAILS = 10
 
-    It is the only place that says how an item changes hands: ``handover``
-    ("Selbstabholung", "Versand") with ``ships`` and ``pickup_only``.
 
-    Args:
-        ad_id: The ad id from a search.
-    """
+async def _detail(ad_id: Union[str, int]) -> dict:
     summary = summaries.summarize_ad_detail(await api.fetch_detail(ad_id))
     # the detail API truncates long descriptions near 600 chars; recover the full
     # text from the web page only when it looks cut off.
@@ -476,6 +468,42 @@ async def get_ad_detail(ad_id: Union[str, int]) -> dict:
         if full and len(full) > len(current):
             summary["description"] = full
     return summary
+
+
+@_tool
+@api.tool_errors("ad")
+async def get_ad_detail(ad_id: Optional[Union[str, int]] = None,
+                        ids: Optional[list[Union[str, int]]] = None) -> dict:
+    """One ad in full: the complete description (also when the app
+    API cuts it), condition, attributes, category, location and ``image_count``.
+    To compare several, pass up to 10 ``ids`` instead; they come back as
+    ``{count, ads, failed}``.
+
+    It is the only place that says how an item changes hands: ``handover``
+    ("Selbstabholung", "Versand") with ``ships`` and ``pickup_only``.
+
+    Args:
+        ad_id: The ad id from a search.
+        ids: Several ad ids, instead of ``ad_id``.
+    """
+    if (ad_id is None) == (not ids):
+        raise ToolError("Pass either 'ad_id' or 'ids'.")
+    if not ids:
+        return await _detail(ad_id)
+    if len(ids) > MAX_DETAILS:
+        raise ToolError(f"At most {MAX_DETAILS} ids per call (got {len(ids)}).")
+    fetch = api.tool_errors("ad")(_detail)
+
+    # one ad that fails (deleted, sold off) is listed rather than failing the rest
+    async def one(i):
+        try:
+            return await fetch(i), None
+        except ToolError as exc:
+            return None, {"id": str(i), "error": str(exc)}
+
+    done = await asyncio.gather(*(one(i) for i in dict.fromkeys(str(i) for i in ids)))
+    ads = [ad for ad, _ in done if ad]
+    return {"count": len(ads), "ads": ads, "failed": [e for _, e in done if e] or None}
 
 
 _CONTENT_TYPE_FORMAT = {

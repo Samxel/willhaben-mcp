@@ -141,3 +141,15 @@ async def test_property_search_drops_excluded_titles(wh, call):
     result = await call("search_immobilien", property_type="Wohnung mieten", exclude=["befristete"])
     assert [r["id"] for r in result["results"]] == ["2"]
     assert result["property_type"] == "Wohnung mieten"
+
+
+async def test_detail_of_several_ads_at_once(wh, call):
+    wh.on("publicapi.willhaben.at", DETAIL + "8", httpx.Response(404))
+    wh.on("publicapi.willhaben.at", DETAIL + "7", detail(7, "iPhone 13"))
+    wh.on("publicapi.willhaben.at", DETAIL + "9", detail(9, "iPhone 14"))
+    result = await call("get_ad_detail", ids=["7", 8, "9", 7])
+    assert [ad["title"] for ad in result["ads"]] == ["iPhone 13", "iPhone 14"]
+    assert result["count"] == 2 and [f["id"] for f in result["failed"]] == ["8"]
+    from conftest import ToolFailed
+    with pytest.raises(ToolFailed, match="either 'ad_id' or 'ids'"):
+        await call("get_ad_detail")

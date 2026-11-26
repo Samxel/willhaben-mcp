@@ -55,7 +55,7 @@ async def test_handover_filter_reads_the_detail(wh, call):
 
 
 async def test_out_of_detail_lookups_the_next_page_starts_at_the_unchecked_ad(wh, call, monkeypatch):
-    import main
+    from willhaben import server as main
     monkeypatch.setattr(main, "MAX_DETAIL_LOOKUPS", 2)
     ads = [ad(i, "iPhone 13", price=300) for i in range(5)]
     wh.on("ad-search.willhaben.at", SEARCH, paged(ads))
@@ -80,7 +80,7 @@ async def test_detail_recovers_a_truncated_description(wh, call):
 
 async def test_images_come_back_as_image_content(wh):
     from mcp import Client
-    import main
+    from willhaben import server as main
     wh.on("publicapi.willhaben.at", DETAIL, detail(7, "iPhone 13", images=3))
     wh.on("cache.willhaben.at", "/mmo/", httpx.Response(200, content=b"\xff\xd8jpeg", headers={"content-type": "image/jpeg"}))
     async with Client(main.mcp) as client:

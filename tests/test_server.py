@@ -6,11 +6,11 @@ from pathlib import Path
 import pytest
 from mcp import Client, StdioServerParameters
 
-import main
+from willhaben import server as main
 
 pytestmark = pytest.mark.anyio
 
-MAIN = Path(main.__file__)
+MAIN = Path(__file__).resolve().parent.parent / "main.py"
 LOCAL = {"list_categories", "list_car_makes", "list_immobilien_types"}
 
 

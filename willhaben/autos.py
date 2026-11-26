@@ -3,7 +3,7 @@
 The car vertical lives under `atz/3/2`. Navigation/filter metadata comes from
 app-aggregator, result lists from ad-search (same hosts as the marketplace).
 Enumerated filters (car type, fuel, ...) and the make list ship in
-data/auto-motor/filters.json; models are make-specific and fetched on demand."""
+willhaben/data/auto-motor/filters.json; models are make-specific and fetched on demand."""
 
 import json
 import logging
@@ -22,7 +22,7 @@ AUTO_NAV_URL = f"https://app-aggregator.willhaben.at/restapi/v2/search/{AUTO_SEA
 
 
 def _load_auto_data() -> dict:
-    path = Path(__file__).parent.parent / "data" / "auto-motor" / "filters.json"
+    path = Path(__file__).parent / "data" / "auto-motor" / "filters.json"
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:

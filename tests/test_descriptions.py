@@ -6,7 +6,7 @@ import json
 import pytest
 from mcp import Client
 
-import main
+from willhaben import server as main
 
 pytestmark = pytest.mark.anyio
 

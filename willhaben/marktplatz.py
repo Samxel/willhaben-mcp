@@ -87,7 +87,7 @@ def _load_categories() -> list[dict]:
     """Load the crawled willhaben category tree (``[{id,label,parentId,children}]``)
     that sits next to this module. Missing file -> empty tree (search still works
     without category filtering)."""
-    path = Path(__file__).parent.parent / "data" / "marktplatz" / "categories.json"
+    path = Path(__file__).parent / "data" / "marktplatz" / "categories.json"
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:

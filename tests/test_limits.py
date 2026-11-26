@@ -2,7 +2,7 @@
 
 import pytest
 
-import main
+from willhaben import server as main
 from conftest import ToolFailed
 from samples import ad, search
 

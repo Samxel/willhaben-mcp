@@ -1,5 +1,5 @@
 """Districts (Bezirke) for the ``district`` filter, shipped in
-data/regions/districts.json (``scripts/build_districts.py`` refreshes it).
+willhaben/data/regions/districts.json (``scripts/build_districts.py`` refreshes it).
 
 willhaben takes a district's area id wherever it takes a state's, so the
 filter works the same for the marketplace, cars and real estate."""
@@ -15,7 +15,7 @@ from . import matching
 
 
 def _load() -> list[dict]:
-    path = Path(__file__).parent.parent / "data" / "regions" / "districts.json"
+    path = Path(__file__).parent / "data" / "regions" / "districts.json"
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:

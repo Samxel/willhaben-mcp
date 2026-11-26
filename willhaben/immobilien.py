@@ -3,7 +3,7 @@
 The real-estate vertical lives under ``atz/2/<propertyTypeId>``: each property
 type (rent flat, buy house, plot, ...) is its own category id in the path, and
 the available filters differ per type. Filter options, ranges and the property
-types ship in data/immobilien/filters.json."""
+types ship in willhaben/data/immobilien/filters.json."""
 
 import json
 import logging
@@ -25,7 +25,7 @@ _ROOM_BUCKETS = {
 
 
 def _load_immo_data() -> dict:
-    path = Path(__file__).parent.parent / "data" / "immobilien" / "filters.json"
+    path = Path(__file__).parent / "data" / "immobilien" / "filters.json"
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:

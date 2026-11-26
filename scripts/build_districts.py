@@ -1,5 +1,5 @@
 """Fetch willhaben's districts (Bezirke) of every Austrian state into
-``data/regions/districts.json``.
+``willhaben/data/regions/districts.json``.
 
 willhaben names them in the "Region" navigator of a search scoped to a state;
 the area ids are the same for the marketplace, cars and real estate. Vienna's
@@ -52,7 +52,7 @@ async def main() -> None:
     for state, area in states:
         found += await districts_of(state, area)
     found.sort(key=lambda d: (d["state"], d["label"]))
-    out = Path(__file__).resolve().parent.parent / "data" / "regions" / "districts.json"
+    out = Path(__file__).resolve().parent.parent / "willhaben" / "data" / "regions" / "districts.json"
     out.write_text(json.dumps(found, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     print(f"{len(found)} districts -> {out}")
 

@@ -3,7 +3,7 @@
 import pytest
 from mcp import Client
 
-import main
+from willhaben import server as main
 from samples import ad, search
 
 pytestmark = pytest.mark.anyio

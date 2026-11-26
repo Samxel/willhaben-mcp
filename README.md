@@ -4,8 +4,8 @@
 
 An MCP server that lets an AI search [willhaben.at](https://www.willhaben.at)
 and pull the full details of ads. It covers the marketplace (Marktplatz), the
-Auto & Motor cars vertical and Immobilien (real estate), wrapping willhaben's
-reverse-engineered mobile-app API and returning the important fields to the AI.
+Auto & Motor cars vertical and Immobilien (real estate), wrapping the willhaben
+app's API and returning the important fields to the AI.
 <p align="center">
   <a href="https://www.willhaben.at/iad/kaufen-und-verkaufen/marktplatz"><img alt="Marktplatz listings" src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FSamxel%2Fwillhaben-mcp%2Fcoverage%2Fcoverage.json&query=%24.marktplatz&label=Marktplatz&color=green&suffix=%20listings&cacheSeconds=3600"></a>
   <a href="https://www.willhaben.at/iad/gebrauchtwagen/auto"><img alt="Auto & Motor listings" src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FSamxel%2Fwillhaben-mcp%2Fcoverage%2Fcoverage.json&query=%24.autos&label=Auto%20%26%20Motor&color=ff7300&suffix=%20listings&cacheSeconds=3600"></a>
@@ -369,13 +369,13 @@ plausibility check the ad itself does not answer.
   of in every tool description. All of it keeps what the model has to read
   small.
 - Releases: bump `version` in `pyproject.toml` and `manifest.json`, then push a
-  tag such as `v1.1` (a `.0` patch may be left off, so `v1.1` releases 1.1.0). The release workflow runs the tests, builds the wheel,
-  the sdist and the `.mcpb` bundle and attaches them to a GitHub release.
+  tag such as `v1.1`. A `.0` patch may be left off the tag, so `v1.1` releases
+  1.1.0. The release workflow runs the tests, builds the wheel, the sdist and
+  the `.mcpb` bundle and attaches them to a GitHub release.
 - The badges read `coverage.json` and `clones.json` from the `coverage` branch.
   A daily GitHub Action refreshes them there, so the counts don't add a commit
   to `main` every day.
 - API details are documented in [`search_api.md`](search_api.md).
-- This uses willhaben's internal API, not an official one. Be nice to it.
 
 ## Disclaimer
 
@@ -383,12 +383,10 @@ This is an independent, unofficial project and is not affiliated with, endorsed
 by, or connected to willhaben. "willhaben" and all related trademarks belong to
 their respective owners.
 
-It's published for educational and research purposes only. It talks to
-willhaben's internal API, which is not meant for public use and may break or
-change at any time. You are responsible for how you use it: respect willhaben's
-Terms of Service, robots rules and applicable law, and don't hammer their
-servers or process personal data from listings. No warranty of any kind; use at
-your own risk.
+It uses an unofficial interface of the willhaben app, which can change or go
+away at any time. You are responsible for how you use it: respect willhaben's
+Terms of Service and applicable law, don't hammer their servers, and don't
+collect personal data from listings.
 
 If you're a rights holder and have a concern about this repository, please open
 an issue and I'll respond promptly.

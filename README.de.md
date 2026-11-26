@@ -5,7 +5,7 @@
 Ein MCP-Server, mit dem eine KI [willhaben.at](https://www.willhaben.at)
 durchsuchen und die vollständigen Details von Anzeigen abrufen kann. Er deckt
 den Marktplatz, den Bereich Auto & Motor und Immobilien ab, nutzt dafür die
-nachgebaute API der willhaben-App und gibt der KI die wichtigen Felder zurück.
+API der willhaben-App und gibt der KI die wichtigen Felder zurück.
 <p align="center">
   <a href="https://www.willhaben.at/iad/kaufen-und-verkaufen/marktplatz"><img alt="Marktplatz listings" src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FSamxel%2Fwillhaben-mcp%2Fcoverage%2Fcoverage.json&query=%24.marktplatz&label=Marktplatz&color=green&suffix=%20listings&cacheSeconds=3600"></a>
   <a href="https://www.willhaben.at/iad/gebrauchtwagen/auto"><img alt="Auto & Motor listings" src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FSamxel%2Fwillhaben-mcp%2Fcoverage%2Fcoverage.json&query=%24.autos&label=Auto%20%26%20Motor&color=ff7300&suffix=%20listings&cacheSeconds=3600"></a>
@@ -119,8 +119,8 @@ HTTPS-URL unter **Settings > Connectors > Add custom connector** ein. Dann kann
 aber jeder, der die URL kennt, den Server nutzen, also stell eine
 Authentifizierung davor.
 
-Alle Tools sind als nur lesend markiert, Clients, die das beachten, fragen also
-nicht vor jedem Aufruf nach. In Claude Desktop kannst du außerdem unter
+Alle Tools sind als rein lesend markiert. Clients, die das beachten, fragen
+deshalb nicht vor jedem Aufruf nach. In Claude Desktop kannst du außerdem unter
 **Settings > Connectors > willhaben** das Dropdown rechts bei den Tools auf
 **Always allow** stellen.
 
@@ -174,8 +174,8 @@ haben keinen eigenen Link: Die Anzeigenseite ist
 Server-Anweisungen, statt in jedem Treffer wiederholt zu werden.
 
 `exclude`, `require` und `hide_reserved` funktionieren in allen drei Suchen
-gleich. Sie laufen hier und blättern weiter, bis `rows` Treffer gefunden oder
-250 Anzeigen durchgesehen sind:
+gleich. Sie laufen auf dem Server und blättern weiter, bis `rows` Treffer
+gefunden oder 250 Anzeigen durchgesehen sind:
 - `exclude` verwirft Titel, die eines dieser Wörter enthalten, etwa `["pro",
   "max", "mini"]`, um ein Basismodell von seinen eigenen Ausstattungsvarianten
   freizuhalten, oder `["motorschaden", "export"]` bei Autos. Es trifft ein
@@ -199,7 +199,7 @@ angibst.
 
 Filter:
 - `category` (ID oder Name; ein Name wird in jeder Wortreihenfolge erkannt,
-  und bei einem Fehlgriff kommen die ähnlichsten Kategorien als Vorschlag)
+  und gibt es den Namen nicht, kommen die ähnlichsten Kategorien als Vorschlag)
 - `condition` (neu, gebraucht, generalüberholt, …)
 - `clothing_size` und `shoe_size`
 - `color`, `pattern`
@@ -210,13 +210,13 @@ Filter:
   irgendwo im Anzeigentext), dazu `exclude`, `require` und `hide_reserved` von
   oben
 - **Spezifikationen gehören in `require`.** Sie stattdessen in `keyword` zu
-  schreiben, ist der eine Fehler, der eine Suche unbemerkt kaputt macht.
+  schreiben, ist der typische Fehler, der eine Suche unbemerkt kaputt macht.
   Verkäufer schreiben dieselbe Speichergröße auf neun verschiedene Arten, und
   jede fünfte Anzeige lässt sie ganz aus dem Titel weg. `keyword="iPhone 13 128
   GB", title_only=True` findet deshalb fast nichts, während `keyword="iPhone
   13", require=["128gb"]` findet, was gemeint war
-- Zubehör löst keiner dieser Filter, weil eine Hülle genau den Namen des
-  Handys trägt. Wörter wie `"hülle"` oder `"akku"` auszuschließen, geht nach
+- Gegen Zubehör hilft keiner dieser Filter, weil eine Hülle genau den Namen
+  des Handys trägt. Wörter wie `"hülle"` oder `"akku"` auszuschließen, geht nach
   hinten los, weil sie auch in Titeln echter Angebote stehen (`"Akku 100%"`).
   Besser eine Untergrenze mit `price_from` bei rund 15–20 % des echten
   Produktpreises setzen (`get_model_price_range` von Geizhals liefert diese
@@ -251,8 +251,8 @@ einen Suchbegriff an, um passende Marken-IDs zu bekommen, und reiche eine ID an
 `search_willhaben(brand=...)` weiter.
 
 Hinweis: Zustand, Größen, Farbe, Muster und Marke hängen von der Kategorie ab.
-In einer breiten Kategorie können sie null Treffer liefern, geh also vorher in
-eine bestimmte Unterkategorie.
+In einer breiten Kategorie können sie null Treffer liefern, wähle also vorher
+eine passende Unterkategorie.
 
 </details>
 
@@ -361,9 +361,9 @@ Bildschirm.
 **`get_ad_seller(ad_id)`**
 
 Wer verkauft: Name, privat oder Händler, Bewertung und Antwortzeit (bei
-privaten Verkäufern), Mitglied seit bzw. angelegt am und Standort. Nützlich für
-eine Prüfung auf Vertrauen und Plausibilität, die die Anzeige selbst nicht
-beantwortet.
+privaten Verkäufern), Mitglied seit bzw. angelegt am und Standort. Hilft
+einzuschätzen, ob ein Angebot vertrauenswürdig ist, wenn die Anzeige selbst das
+nicht beantwortet.
 
 </details>
 
@@ -394,34 +394,32 @@ beantwortet.
   haben, steht einmal in den Server-Anweisungen statt in jeder
   Tool-Beschreibung. All das hält klein, was das Modell lesen muss.
 - Releases: `version` in `pyproject.toml` und `manifest.json` erhöhen, dann
-  einen Tag wie `v1.1` pushen (eine Patch-Stelle `.0` darf fehlen, `v1.1` veröffentlicht also 1.1.0). Der Release-Workflow lässt die Tests laufen,
-  baut Wheel, sdist und das `.mcpb`-Bundle und hängt sie an ein GitHub-Release.
-- Die Badges lesen `coverage.json` und `clones.json` aus dem Branch
-  `coverage`. Eine tägliche GitHub Action aktualisiert sie dort, damit die
-  Zahlen nicht jeden Tag einen Commit in `main` erzeugen.
+  einen Tag wie `v1.1` pushen. Eine Patch-Version `.0` kann man im Tag
+  weglassen, `v1.1` veröffentlicht also 1.1.0. Der Release-Workflow lässt die
+  Tests laufen, baut Wheel, sdist und das `.mcpb`-Bundle und hängt sie an ein
+  GitHub-Release.
+- Die Badges holen ihre Zahlen aus `coverage.json` und `clones.json` im
+  Branch `coverage`. Eine tägliche GitHub Action aktualisiert sie dort, damit
+  die Zahlen nicht jeden Tag einen Commit in `main` erzeugen.
 - Die API ist in [`search_api.md`](search_api.md) dokumentiert (auf Englisch).
-- Das hier nutzt die interne API von willhaben, keine offizielle. Geh
-  pfleglich damit um.
 
 ## Haftungsausschluss
 
-Das ist ein unabhängiges, inoffizielles Projekt und steht in keiner Verbindung
-zu willhaben, wird von willhaben weder unterstützt noch empfohlen. „willhaben“
-und alle zugehörigen Marken gehören ihren jeweiligen Inhabern.
+Das ist ein unabhängiges, inoffizielles Projekt ohne Verbindung zu willhaben;
+willhaben unterstützt oder empfiehlt es nicht. „willhaben“ und alle zugehörigen
+Marken gehören ihren jeweiligen Inhabern.
 
-Es wird nur zu Lern- und Forschungszwecken veröffentlicht. Es spricht mit der
-internen API von willhaben, die nicht für die Öffentlichkeit gedacht ist und
-sich jederzeit ändern oder wegfallen kann. Du bist dafür verantwortlich, wie du
-es nutzt: Halte dich an die Nutzungsbedingungen von willhaben, die
-Robots-Regeln und geltendes Recht, überlaste die Server nicht und verarbeite
-keine personenbezogenen Daten aus Anzeigen. Keinerlei Gewährleistung, Nutzung
-auf eigenes Risiko.
+Es nutzt eine inoffizielle Schnittstelle der willhaben-App, die sich jederzeit
+ändern oder wegfallen kann. Du bist dafür verantwortlich, wie du es nutzt:
+Halte dich an die Nutzungsbedingungen von willhaben und an geltendes Recht,
+überlaste die Server nicht und sammle keine personenbezogenen Daten aus
+Anzeigen.
 
-Wenn du Rechteinhaber bist und Bedenken zu diesem Repository hast, eröffne
+Falls du Rechteinhaber bist und Bedenken zu diesem Repository hast, eröffne
 bitte ein Issue, ich melde mich umgehend.
 
 ## Lizenz
 
-[`MIT LICENSE`](LICENSE). Bereitgestellt „wie besehen“, ohne Gewährleistung.
+[`MIT LICENSE`](LICENSE). Ohne Gewähr.
 
 <p align="center"><sub><a href="README.md">Read this in English</a></sub></p>

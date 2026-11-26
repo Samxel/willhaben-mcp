@@ -42,6 +42,10 @@ def price_amount(attr: dict) -> Optional[float]:
     return None
 
 
+def _unless_active(status: str) -> Optional[str]:
+    return None if status == "active" else status
+
+
 def summarize_ad(ad: dict) -> dict:
     """Reduce a full willhaben advert to the handful of fields that matter
     for an AI response instead of returning the whole raw object."""
@@ -56,14 +60,15 @@ def summarize_ad(ad: dict) -> dict:
         # the display string only says something the number does not when
         # there is no number ("auf Anfrage")
         "price": attr.get("PRICE_FOR_DISPLAY") if amount is None else None,
-        "status": matching.ad_status(title, ad)[0],
+        # nearly every hit is active, so only the exceptions say so
+        "status": _unless_active(matching.ad_status(title, ad)[0]),
         "seller": "privat" if attr.get("ISPRIVATE") == "1" else "haendler",
         "seller_name": attr.get("ORGNAME") or attr.get("CONTACT/NAME"),
         "location": attr.get("LOCATION"),
         "postcode": attr.get("POSTCODE"),
         "published": (attr.get("PUBLISHED_String") or "")[:16] or None,
         "paylivery": attr.get("p2penabled") == "true" or None,
-        "url": ad_url(ad.get("id")),
+        # no link per hit: the instructions say how one is built from the id
     }
 
 

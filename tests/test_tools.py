@@ -26,7 +26,8 @@ async def test_search_summarizes_hits(wh, call):
                                                     rows_found=4373))
     result = await call("search_willhaben", keyword="iPhone 13")
     hit = result["results"][0]
-    assert (hit["id"], hit["price_amount"], hit["status"], hit["seller"]) == ("1", 350.0, "active", "privat")
+    assert (hit["id"], hit["price_amount"], hit["seller"]) == ("1", 350.0, "privat")
+    assert "status" not in hit and "url" not in hit
     assert (result["rows_found"], result["has_more"]) == (4373, True)
     sent = wh.sent(SEARCH)[0].url.params
     assert (sent["keyword"], sent["rows"]) == ("iPhone 13", "4")
@@ -123,3 +124,12 @@ async def test_category_and_make_lists(call):
     assert makes["makes"][0]["label"] == "BMW"
     types = await call("list_immobilien_types")
     assert "Wohnung mieten" in [t["label"] for t in types["types"]]
+
+
+async def test_hide_reserved_drops_reserved_and_sold_hits(wh, call):
+    ads = [ad(1, "iPhone 13 RESERVIERT"), ad(2, "VERKAUFT iPhone 13"), ad(3, "iPhone 13")]
+    wh.on("ad-search.willhaben.at", SEARCH, paged(ads))
+    shown = await call("search_willhaben", keyword="iPhone 13", rows=3)
+    hidden = await call("search_willhaben", keyword="iPhone 13", rows=3, hide_reserved=True)
+    assert [r.get("status") for r in shown["results"]] == ["reserved", "sold", None]
+    assert [r["id"] for r in hidden["results"]] == ["3"]

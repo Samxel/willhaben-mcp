@@ -47,9 +47,11 @@ rows is at most 50; page on with the next_offset a result returns, has_more \
 says whether anything is left.
 
 status is "active", "reserved" or "sold". willhaben always reports an ad as \
-active, so this is read from the seller's marker in the title.
+active, so this is read from the seller's marker in the title. Search hits \
+carry it only when it is not "active".
 
-Fields without a value are left out of results.
+Fields without a value are left out of results. Search hits carry no link: an \
+ad's page is https://www.willhaben.at/iad/object?adId={id}.
 """
 
 # The tool list only changes with a new release, so clients on the 2026-07-28
@@ -371,7 +373,7 @@ async def search_willhaben(
             text = tokens | matching.tokens(ad["description"] or "")
             if not all(matching.has_term(text, forms) for forms in required):
                 return False
-        return not (hide_reserved and ad["status"] != "active")
+        return not (hide_reserved and ad.get("status"))
 
     results: list = []
     cursor, lookups, rows_found = offset, 0, None

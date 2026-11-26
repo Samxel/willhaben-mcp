@@ -83,6 +83,9 @@
     "gebrauchtwagen"
   ],
   "license": "MIT",
+  "privacy_policies": [
+    "https://datenschutz.willhaben.at/"
+  ],
   "compatibility": {
     "platforms": [
       "darwin",

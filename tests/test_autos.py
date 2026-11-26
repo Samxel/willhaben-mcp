@@ -35,3 +35,22 @@ async def test_hits_name_make_and_model(bmw, call):
     # the model list is fetched once per make, not per search
     await call("search_autos", make="BMW")
     assert len(bmw.sent(AUTOS)) == 3  # two searches, one model list (both share the path)
+
+
+def paged(ads):
+    def respond(request):
+        offset, rows = int(request.url.params["offset"]), int(request.url.params["rows"])
+        return search(ads[offset:offset + rows], rows_found=len(ads))
+    return respond
+
+
+async def test_exclude_and_require_page_on_until_enough_cars_pass(bmw, call):
+    ads = ([car(i, "BMW 320d Motorschaden", price=3000) for i in range(55)]
+           + [car(100, "BMW 320d", price=8000, body="Pickerl neu, Scheckheft"),
+              car(101, "RESERVIERT BMW 320d", price=8000, body="Scheckheft gepflegt"),
+              car(102, "BMW 318d", price=7000, body="Scheckheft")])
+    bmw.on("ad-search.willhaben.at", AUTOS, paged(ads))
+    result = await call("search_autos", make="BMW", exclude=["motorschaden"], require=["scheckheft"],
+                        hide_reserved=True, rows=2)
+    assert [r["id"] for r in result["results"]] == ["100", "102"]
+    assert result["scanned"] == 58 and not result["has_more"]

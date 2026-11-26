@@ -133,3 +133,11 @@ async def test_hide_reserved_drops_reserved_and_sold_hits(wh, call):
     hidden = await call("search_willhaben", keyword="iPhone 13", rows=3, hide_reserved=True)
     assert [r.get("status") for r in shown["results"]] == ["reserved", "sold", None]
     assert [r["id"] for r in hidden["results"]] == ["3"]
+
+
+async def test_property_search_drops_excluded_titles(wh, call):
+    ads = [flat(1, "Befristete Wohnung", price=900), flat(2, "Altbauwohnung mit Balkon", price=950)]
+    wh.on("ad-search.willhaben.at", IMMO, search(ads))
+    result = await call("search_immobilien", property_type="Wohnung mieten", exclude=["befristete"])
+    assert [r["id"] for r in result["results"]] == ["2"]
+    assert result["property_type"] == "Wohnung mieten"

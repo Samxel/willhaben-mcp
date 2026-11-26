@@ -220,6 +220,99 @@ def _pagination(rows_found, scanned_to: int, returned: int) -> dict:
     }
 
 
+def _keeper(keyword: Optional[str], *, title_only: bool, require, exclude, hide_reserved: bool,
+            extra=None):
+    """The filters run here rather than at willhaben, as one ``keep(hit)``, and
+    whether any is set (then pages are pulled until enough hits pass).
+    ``extra`` is a further check that does not by itself call for paging on."""
+    wanted = matching.tokens(keyword) if (title_only and keyword) else set()
+    excluded = [matching.term_forms(t) for t in (exclude or []) if str(t).strip()]
+    required = [matching.term_forms(t) for t in (require or []) if str(t).strip()]
+
+    def keep(ad: dict) -> bool:
+        if extra and not extra(ad):
+            return False
+        tokens = matching.tokens(ad["title"] or "")
+        if wanted and not wanted <= tokens:
+            return False
+        if any(matching.has_term(tokens, forms) for forms in excluded):
+            return False
+        if required:
+            # a spec is written wherever the seller felt like it, so look at the
+            # whole ad rather than demanding it in the title
+            text = tokens | matching.tokens(ad.get("description") or "")
+            if not all(matching.has_term(text, forms) for forms in required):
+                return False
+        return not (hide_reserved and ad.get("status"))
+
+    return keep, bool(wanted or excluded or required or hide_reserved)
+
+
+def _headers() -> dict:
+    return {
+        "x-wh-client": api.WH_CLIENT,
+        "x-wh-visitor-id": str(uuid.uuid4()),
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+
+
+async def _scan(url: str, params: dict, *, rows: int, offset: int, summarize_page, keep,
+                post_filtered: bool, handover: Optional[str] = None) -> dict:
+    """Page through a willhaben search from ``offset`` until ``rows`` hits pass
+    ``keep``. Without a filter one page of ``rows`` is all it takes; with one,
+    full pages are pulled until enough pass or FILTER_MAX_SCAN ads were looked
+    at. ``summarize_page`` turns a page of raw adverts into hits."""
+    headers = _headers()
+    results: list = []
+    cursor, lookups, rows_found = offset, 0, None
+    while True:
+        params["rows"] = MAX_ROWS if post_filtered else rows
+        params["offset"] = cursor
+        logger.debug("Requesting: '%s'\nWith parameters: %s", url, params)
+        data = (await api.get(url, params=params, headers=headers)).json()
+        rows_found = data.get("rowsFound")
+        ads = data.get("advertSummaryList", {}).get("advertSummary", [])
+        for summary in await summarize_page(ads):
+            # out of detail lookups: stop before this ad, so the next page
+            # starts with it rather than skipping it unchecked
+            if handover and lookups >= MAX_DETAIL_LOOKUPS and keep(summary):
+                break
+            cursor += 1
+            if not keep(summary):
+                continue
+            # the expensive check runs last, only on ads everything else kept
+            if handover:
+                lookups += 1
+                offered = await _handover(summary["id"])
+                if offered is None:
+                    continue
+                folded = matching.fold(" ".join(offered))
+                ships = "versand" in folded
+                # "abholung" asks for pickup to be on offer, not for it to be
+                # the only option -- most ads offer both.
+                if not (ships if handover == "versand" else "abhol" in folded):
+                    continue
+                summary.update({"handover": offered, "ships": ships, "pickup_only": not ships})
+            results.append(summary)
+            if len(results) >= rows:
+                break
+        scanned = cursor - offset
+        if not post_filtered or len(results) >= rows or not ads:
+            break
+        if scanned >= FILTER_MAX_SCAN or lookups >= MAX_DETAIL_LOOKUPS:
+            break
+        if rows_found is not None and cursor >= rows_found:
+            break
+
+    result = {**_pagination(rows_found, cursor, len(results)), "results": results}
+    if post_filtered:
+        result["scanned"] = cursor - offset
+    if handover:
+        result["detail_lookups"] = lookups
+    return result
+
+
 @_tool
 @api.tool_errors("search")
 async def search_willhaben(
@@ -294,10 +387,9 @@ async def search_willhaben(
         raise ToolError("Provide 'keyword' and/or 'category'.")
     _check_ranges(("price", price_from, price_to))
     rows = _rows(rows, offset)
-    wanted = matching.tokens(keyword) if (title_only and keyword) else set()
-    excluded = [matching.term_forms(t) for t in (exclude or []) if str(t).strip()]
-    required = [matching.term_forms(t) for t in (require or []) if str(t).strip()]
-    post_filtered = bool(wanted or excluded or required or hide_reserved or handover)
+    keep, post_filtered = _keeper(keyword, title_only=title_only, require=require, exclude=exclude,
+                                  hide_reserved=hide_reserved)
+    post_filtered = post_filtered or bool(handover)
 
     params: dict = {
         "sfId": str(uuid.uuid4()),
@@ -354,77 +446,11 @@ async def search_willhaben(
     if last_48h:
         params["periode"] = 2
 
-    headers = {
-        "x-wh-client": "api@tailored-apps.com;willhabenapp;android;8.57.0;responsive_app",
-        "x-wh-visitor-id": str(uuid.uuid4()),
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
+    async def summarize_page(ads):
+        return [summaries.summarize_ad(ad) for ad in ads]
 
-    def keep(ad: dict) -> bool:
-        tokens = matching.tokens(ad["title"] or "")
-        if wanted and not wanted <= tokens:
-            return False
-        if any(matching.has_term(tokens, forms) for forms in excluded):
-            return False
-        if required:
-            # a spec is written wherever the seller felt like it, so look at the
-            # whole ad rather than demanding it in the title
-            text = tokens | matching.tokens(ad["description"] or "")
-            if not all(matching.has_term(text, forms) for forms in required):
-                return False
-        return not (hide_reserved and ad.get("status"))
-
-    results: list = []
-    cursor, lookups, rows_found = offset, 0, None
-    while True:
-        params["rows"] = MAX_ROWS if post_filtered else rows
-        params["offset"] = cursor
-        logger.debug("Requesting: '%s'\nWith parameters: %s", api.BASE_URL, params)
-        response = await api.get(api.BASE_URL, params=params, headers=headers)
-        logger.debug("Response: %d", response.status_code)
-        data = response.json()
-        rows_found = data.get("rowsFound")
-        ads = data.get("advertSummaryList", {}).get("advertSummary", [])
-        for ad in ads:
-            summary = summaries.summarize_ad(ad)
-            # out of detail lookups: stop before this ad, so the next page
-            # starts with it rather than skipping it unchecked
-            if handover and lookups >= MAX_DETAIL_LOOKUPS and keep(summary):
-                break
-            cursor += 1
-            if not keep(summary):
-                continue
-            # the expensive check runs last, only on ads everything else kept
-            if handover:
-                lookups += 1
-                offered = await _handover(summary["id"])
-                if offered is None:
-                    continue
-                folded = matching.fold(" ".join(offered))
-                ships = "versand" in folded
-                # "abholung" asks for pickup to be on offer, not for it to be
-                # the only option -- most ads offer both.
-                if not (ships if handover == "versand" else "abhol" in folded):
-                    continue
-                summary.update({"handover": offered, "ships": ships, "pickup_only": not ships})
-            results.append(summary)
-            if len(results) >= rows:
-                break
-        scanned = cursor - offset
-        if not post_filtered or len(results) >= rows or not ads:
-            break
-        if scanned >= FILTER_MAX_SCAN or lookups >= MAX_DETAIL_LOOKUPS:
-            break
-        if rows_found is not None and cursor >= rows_found:
-            break
-
-    result = {**_pagination(rows_found, cursor, len(results)), "results": results}
-    if post_filtered:
-        result["scanned"] = cursor - offset
-    if handover:
-        result["detail_lookups"] = lookups
-    return result
+    return await _scan(api.BASE_URL, params, rows=rows, offset=offset, summarize_page=summarize_page,
+                       keep=keep, post_filtered=post_filtered, handover=handover)
 
 
 @_tool
@@ -677,6 +703,9 @@ async def search_autos(
     power_to: Optional[int] = None,
     warranty: bool = False,
     condition_report: bool = False,
+    exclude: Optional[list[str]] = None,
+    require: Optional[list[str]] = None,
+    hide_reserved: bool = False,
     sort_by: api.SortBy = "actuality",
     area: Optional[Many[api.Bundesland]] = None,
     last_48h: bool = False,
@@ -693,6 +722,11 @@ async def search_autos(
     ``power_ps``. willhaben tops a make search with a paid listing whatever the
     filters say; hits outside the requested ranges are dropped and counted in
     ``dropped_off_filter``.
+
+    ``exclude``, ``require`` and ``hide_reserved`` work as in
+    ``search_willhaben`` and page on until ``rows`` cars pass, e.g.
+    ``exclude=["motorschaden", "export", "bastler"]``. Car hits carry no
+    description, so ``require`` only looks at the title here.
 
     Args:
         make: Make id or name, see ``list_car_makes``.
@@ -765,34 +799,37 @@ async def search_autos(
             [api.area_id[a] for a in area] if isinstance(area, list) else api.area_id[area]
         )
 
-    headers = {
-        "x-wh-client": api.WH_CLIENT,
-        "x-wh-visitor-id": str(uuid.uuid4()),
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-    logger.debug("Requesting autos: %s params=%s", autos.AUTO_RESULTS_URL, params)
-    response = await api.get(autos.AUTO_RESULTS_URL, params=params, headers=headers)
-    data = response.json()
-    ads = data.get("advertSummaryList", {}).get("advertSummary", [])
     make_id = params.get("CAR_MODEL/MAKE")
-    model_ids = {str(summaries.ad_attributes(ad).get("CAR_MODEL/MODEL")) for ad in ads}
-    if make_id and not model_ids <= autos.MODEL_NAMES.keys():
-        try:  # one request per make, then the names are known for good
-            await autos.fetch_models(make_id)
-        except httpx.HTTPError:
-            pass
-    cars = [autos.summarize_car(ad) for ad in ads]
+
+    async def summarize_page(ads):
+        model_ids = {str(summaries.ad_attributes(ad).get("CAR_MODEL/MODEL")) for ad in ads}
+        if make_id and not model_ids <= autos.MODEL_NAMES.keys():
+            try:  # one request per make, then the names are known for good
+                await autos.fetch_models(make_id)
+            except httpx.HTTPError:
+                pass
+        return [autos.summarize_car(ad) for ad in ads]
+
     # willhaben puts a paid dealer listing on top of a make search whatever the
     # filters say (a 48k car for "up to 15k"); drop anything outside them
     bounds = [("price_amount", price_from, price_to), ("year", year_from, year_to),
               ("mileage_km", mileage_from, mileage_to), ("power_kw", power_from, power_to)]
-    kept = [c for c in cars if all(c.get(field) is None
-                                   or ((low is None or c[field] >= low) and (high is None or c[field] <= high))
-                                   for field, low, high in bounds)]
-    result = {**_pagination(data.get("rowsFound"), offset + len(ads), len(kept)), "results": kept}
-    if len(kept) < len(cars):
-        result["dropped_off_filter"] = len(cars) - len(kept)
+    dropped = 0
+
+    def in_bounds(car: dict) -> bool:
+        nonlocal dropped
+        ok = all(car.get(field) is None
+                 or ((low is None or car[field] >= low) and (high is None or car[field] <= high))
+                 for field, low, high in bounds)
+        dropped += not ok
+        return ok
+
+    keep, post_filtered = _keeper(keyword, title_only=False, require=require, exclude=exclude,
+                                  hide_reserved=hide_reserved, extra=in_bounds)
+    result = await _scan(autos.AUTO_RESULTS_URL, params, rows=rows, offset=offset,
+                         summarize_page=summarize_page, keep=keep, post_filtered=post_filtered)
+    if dropped:
+        result["dropped_off_filter"] = dropped
     return result
 
 
@@ -846,6 +883,9 @@ async def search_immobilien(
     area_to: Optional[int] = None,
     plot_from: Optional[int] = None,
     plot_to: Optional[int] = None,
+    exclude: Optional[list[str]] = None,
+    require: Optional[list[str]] = None,
+    hide_reserved: bool = False,
     sort_by: api.SortBy = "actuality",
     area: Optional[Many[api.Bundesland]] = None,
     last_48h: bool = False,
@@ -859,6 +899,11 @@ async def search_immobilien(
     Hits carry ``price_amount`` and ``price_per_m2`` next to
     ``living_area_m2``, ``plot_area_m2``, ``rooms``, ``floor``, ``district`` and
     ``address``.
+
+    ``exclude``, ``require`` and ``hide_reserved`` work as in
+    ``search_willhaben``, e.g. ``exclude=["befristet", "provision"]``.
+    Property hits carry no description, so ``require`` only looks at the
+    title here.
 
     Args:
         property_type: Id or name from ``list_immobilien_types``, e.g.
@@ -916,22 +961,16 @@ async def search_immobilien(
             [api.area_id[a] for a in area] if isinstance(area, list) else api.area_id[area]
         )
 
-    headers = {
-        "x-wh-client": api.WH_CLIENT,
-        "x-wh-visitor-id": str(uuid.uuid4()),
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
     url = f"{immobilien.IMMO_RESULTS_BASE}/{immobilien.IMMO_SEARCH_PREFIX}/{catid}"
-    logger.debug("Requesting immobilien: %s params=%s", url, params)
-    response = await api.get(url, params=params, headers=headers)
-    data = response.json()
-    ads = data.get("advertSummaryList", {}).get("advertSummary", [])
-    return {
-        "property_type": immobilien.IMMO_TYPES.get(int(catid)),
-        **_pagination(data.get("rowsFound"), offset + len(ads), len(ads)),
-        "results": [immobilien.summarize_immo(ad) for ad in ads],
-    }
+
+    async def summarize_page(ads):
+        return [immobilien.summarize_immo(ad) for ad in ads]
+
+    keep, post_filtered = _keeper(keyword, title_only=False, require=require, exclude=exclude,
+                                  hide_reserved=hide_reserved)
+    result = await _scan(url, params, rows=rows, offset=offset, summarize_page=summarize_page,
+                         keep=keep, post_filtered=post_filtered)
+    return {"property_type": immobilien.IMMO_TYPES.get(int(catid)), **result}
 
 
 @_tool(annotations=LOCAL)

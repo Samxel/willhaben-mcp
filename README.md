@@ -370,7 +370,7 @@ plausibility check the ad itself does not answer.
   of in every tool description. All of it keeps what the model has to read
   small.
 - Releases: bump `version` in `pyproject.toml` and `manifest.json`, then push a
-  tag such as `v1.0.1`. The release workflow runs the tests, builds the wheel,
+  tag such as `v1.1` (a `.0` patch may be left off, so `v1.1` releases 1.1.0). The release workflow runs the tests, builds the wheel,
   the sdist and the `.mcpb` bundle and attaches them to a GitHub release.
 - The badges read `coverage.json` and `clones.json` from the `coverage` branch.
   A daily GitHub Action refreshes them there, so the counts don't add a commit

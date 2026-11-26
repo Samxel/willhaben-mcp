@@ -43,7 +43,7 @@ async def test_upstream_failures_are_phrased(wh, call):
 
 async def test_a_rotated_token_key_is_named(wh, call):
     wh.on("app-aggregator.willhaben.at", "/api/v1/application-data", httpx.Response(401))
-    with pytest.raises(ToolFailed, match="signing key was most likely rotated") as failed:
+    with pytest.raises(ToolFailed, match="its signing key changed") as failed:
         await call("get_ad_detail", ad_id="1")
     # the message sends whoever reads it to the file that holds the credential
     path = re.search(r"WH_TOKEN_REQUEST in (\S+)", str(failed.value)).group(1)

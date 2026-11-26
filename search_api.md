@@ -308,12 +308,10 @@ POST https://app-aggregator.willhaben.at/api/v1/application-data
 -> {"applicationToken": {"value": "...", "expireInSeconds": 2592000}}
 ```
 
-`signature` is an HMAC over `organization + salt + timestamp` made with a key
-baked into the app, so a fresh one can't be computed off-device. But the server
-does **not** check the timestamp's age, so **replaying one captured signed request
-keeps returning fresh 30-day tokens** -- that is how `willhaben/api.py` auto-refreshes,
-without hardcoding a token. Re-capture the signed `applicationTokenRequest` from
-the app only if willhaben rotates the signing key (the stored one then `401`s).
+`willhaben/api.py` stores one signed `applicationTokenRequest` and fetches a fresh
+token from it whenever one is needed, so no token has to be hardcoded. If
+willhaben changes the signing key, that request stops working (`401`) and has to
+be replaced.
 
 `x-wh-date` and `x-wh-security-version` must be present on the detail request but
 their values are not checked.

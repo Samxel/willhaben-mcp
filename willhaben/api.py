@@ -25,21 +25,12 @@ APPLICATION_DATA_URL = "https://app-aggregator.willhaben.at/api/v1/application-d
 
 WH_CLIENT = "api@tailored-apps.com;willhabenapp;android;8.57.0;responsive_app"
 
-# The detail API (HTTP/2) is gated by an `x-wh-application-token` that willhaben's
-# server ISSUES: the app POSTs `application-data` with a signed
-# `applicationTokenRequest` and gets back a token valid for 30 days. The
-# signature is an HMAC over (organization, salt, timestamp) made with a key baked
-# into the app -- we cannot compute a fresh one, but the server does not check the
-# timestamp's age, so replaying one captured signed request keeps minting fresh
-# 30-day tokens. So instead of hardcoding a token that expires, we store that
-# signed request and fetch a live token from it (see `_fetch_application_token`).
-#
-# HOW TO REFRESH IF WILLHABEN ROTATES THE SIGNING KEY (stored request -> 401):
-#   1. Run the app under an mitmproxy MITM with SSL-unpinning (see README/notes).
-#   2. Cold-start willhaben and find the first `POST .../api/v1/application-data`.
-#   3. Copy its JSON body's `applicationTokenRequest` object into WH_TOKEN_REQUEST
-#      below (organization, salt, signature, timestamp). That's the only part that
-#      needs the app; the token itself then comes from the server again.
+# The detail API (HTTP/2) needs an `x-wh-application-token`, which willhaben's
+# server issues for 30 days in answer to the app's signed `applicationTokenRequest`.
+# That request is stored below, and a live token is fetched from it whenever one
+# is needed (see `_fetch_application_token`), so no token that expires is
+# hardcoded. If willhaben stops accepting the stored request (401), it needs
+# updating.
 WH_SECURITY_VERSION = "20130527022532"
 WH_TOKEN_REQUEST = {
     "organization": "api@tailored-apps.com",
@@ -115,8 +106,8 @@ _app_token_lock = asyncio.Lock()
 
 
 async def _fetch_application_token() -> str:
-    """Obtain a fresh 30-day ``x-wh-application-token`` from willhaben by replaying
-    the stored signed ``applicationTokenRequest`` (see WH_TOKEN_REQUEST)."""
+    """Obtain a fresh 30-day ``x-wh-application-token`` from willhaben with the
+    stored signed ``applicationTokenRequest`` (see WH_TOKEN_REQUEST)."""
     headers = {
         "Accept": "application/json",
         "x-wh-client": WH_CLIENT,
@@ -132,9 +123,8 @@ async def _fetch_application_token() -> str:
         raise ToolError(f"Could not reach willhaben to obtain an application token: {exc}") from exc
     if response.status_code == 401:
         raise ToolError(
-            "willhaben rejected the stored token-refresh credential (401). Its signing "
-            "key was most likely rotated -- capture a fresh applicationTokenRequest from "
-            "the app and update WH_TOKEN_REQUEST in willhaben/api.py (see the comment there)."
+            "willhaben rejected the stored token request (401), most likely because its "
+            "signing key changed. WH_TOKEN_REQUEST in willhaben/api.py needs updating."
         )
     response.raise_for_status()
     token = (response.json().get("applicationToken") or {}).get("value")

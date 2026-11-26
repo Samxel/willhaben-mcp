@@ -53,6 +53,18 @@ async def test_handover_filter_reads_the_detail(wh, call):
     assert wh.sent("/atdetail/v1/1")[0].headers["x-wh-application-token"] == "test-token"
 
 
+async def test_out_of_detail_lookups_the_next_page_starts_at_the_unchecked_ad(wh, call, monkeypatch):
+    import main
+    monkeypatch.setattr(main, "MAX_DETAIL_LOOKUPS", 2)
+    ads = [ad(i, "iPhone 13", price=300) for i in range(5)]
+    wh.on("ad-search.willhaben.at", SEARCH, paged(ads))
+    wh.on("publicapi.willhaben.at", DETAIL, detail(0, "iPhone 13", handover="Selbstabholung"))
+    result = await call("search_willhaben", keyword="iPhone 13", handover="versand", rows=1)
+    assert (result["results"], result["detail_lookups"]) == ([], 2)
+    # ads 0 and 1 were checked, ad 2 was not, so paging resumes there
+    assert result["next_offset"] == 2
+
+
 async def test_detail_recovers_a_truncated_description(wh, call):
     short = "x" * 590
     wh.on("publicapi.willhaben.at", DETAIL, detail(7, "iPhone 13", description=short))

@@ -337,14 +337,16 @@ async def search_willhaben(
         rows_found = data.get("rowsFound")
         ads = data.get("advertSummaryList", {}).get("advertSummary", [])
         for ad in ads:
-            cursor += 1
             summary = summaries.summarize_ad(ad)
+            # out of detail lookups: stop before this ad, so the next page
+            # starts with it rather than skipping it unchecked
+            if handover and lookups >= MAX_DETAIL_LOOKUPS and keep(summary):
+                break
+            cursor += 1
             if not keep(summary):
                 continue
             # the expensive check runs last, only on ads everything else kept
             if handover:
-                if lookups >= MAX_DETAIL_LOOKUPS:
-                    break
                 lookups += 1
                 offered = await _handover(summary["id"])
                 if offered is None:

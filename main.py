@@ -411,7 +411,8 @@ _CONTENT_TYPE_FORMAT = {
 
 @_content_tool
 @api.tool_errors("ad")
-async def get_ad_images(ad_id: Union[str, int], max_images: int = 4) -> list:
+async def get_ad_images(ad_id: Union[str, int], max_images: int = 4,
+                        detail: Literal["low", "high"] = "low") -> list:
     """The ad's photos as images you can look at, up to
     ``max_images`` (at most 10). Use them whenever the answer depends on what
     the item looks like: condition, damage, completeness, or details only a
@@ -420,11 +421,17 @@ async def get_ad_images(ad_id: Union[str, int], max_images: int = 4) -> list:
     Args:
         ad_id: The ad id from a search.
         max_images: How many photos to fetch. Default 4.
+        detail: "low" (300x400, enough for condition and completeness) or
+            "high" (900x1200, about nine times the tokens) to read small print
+            such as a label, serial number or screen.
     """
     max_images = max(1, min(int(max_images), 10))
-    detail = await api.fetch_detail(ad_id)
-    images = summaries.widget(detail.get("widgets", []), "PICTURE_SLIDER").get("advertImageList", [])
-    urls = [img.get("referenceImageUrl") for img in images if img.get("referenceImageUrl")]
+    ad = await api.fetch_detail(ad_id)
+    images = summaries.widget(ad.get("widgets", []), "PICTURE_SLIDER").get("advertImageList", [])
+    # mainImageUrl is the app's 300x400 gallery size, referenceImageUrl the
+    # 900x1200 original; either may be missing, so fall back to the other
+    keys = ("referenceImageUrl", "mainImageUrl") if detail == "high" else ("mainImageUrl", "referenceImageUrl")
+    urls = [next(img[k] for k in keys if img.get(k)) for img in images if any(img.get(k) for k in keys)]
     urls = urls[:max_images]
     if not urls:
         return [f"No images found for ad {ad_id}."]
@@ -445,7 +452,7 @@ async def get_ad_images(ad_id: Union[str, int], max_images: int = 4) -> list:
     fetched = await asyncio.gather(*(fetch(u) for u in urls))
     pictures = [img for img in fetched if img is not None]
 
-    title = detail.get("description") or f"ad {ad_id}"
+    title = ad.get("description") or f"ad {ad_id}"
     header = f'{len(pictures)} image(s) for "{title}" (ad {ad_id}):'
     return [header, *pictures]
 

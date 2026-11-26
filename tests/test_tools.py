@@ -84,7 +84,10 @@ async def test_images_come_back_as_image_content(wh):
     wh.on("cache.willhaben.at", "/mmo/", httpx.Response(200, content=b"\xff\xd8jpeg", headers={"content-type": "image/jpeg"}))
     async with Client(main.mcp) as client:
         result = await client.call_tool("get_ad_images", {"ad_id": "7", "max_images": 2})
+        await client.call_tool("get_ad_images", {"ad_id": "7", "max_images": 1, "detail": "high"})
     assert [b.type for b in result.content] == ["text", "image", "image"]
+    # the 300x400 gallery size by default, the original only when asked for
+    assert [r.url.path for r in wh.sent("/mmo/")] == ["/mmo/7_0_hoved.jpg", "/mmo/7_1_hoved.jpg", "/mmo/7_0.jpg"]
 
 
 async def test_seller_lookup_for_a_private_seller(wh, call):

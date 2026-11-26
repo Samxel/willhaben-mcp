@@ -57,7 +57,8 @@ def detail(ad_id, title, *, description="Funktioniert einwandfrei.", price=150, 
             "post_code": "5020", "region_level_2": "Salzburg", "publish_date": "2026-10-20T10:00:00Z"}}},
         "widgets": [
             {"type": "PICTURE_SLIDER", "advertImageList": [
-                {"referenceImageUrl": f"https://cache.willhaben.at/mmo/{ad_id}_{i}.jpg"} for i in range(images)]},
+                {"referenceImageUrl": f"https://cache.willhaben.at/mmo/{ad_id}_{i}.jpg",
+                 "mainImageUrl": f"https://cache.willhaben.at/mmo/{ad_id}_{i}_hoved.jpg"} for i in range(images)]},
             {"type": "TITLE_WITH_PRICE", "formattedPrice": f"€ {price}", "deliveryCosts": None},
             {"type": "PARAGRAPHED_TEXT", "teaser": "Privatperson"},
             {"type": "PARAGRAPHED_TEXT", "teaser": description},

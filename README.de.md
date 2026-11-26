@@ -246,9 +246,9 @@ Der ganze Baum (rund 3500 Kategorien) liegt dem Server in
 
 **`search_brands(category, term, limit=40)`**
 
-Marken hängen von der Kategorie ab, und es gibt über 1000 pro Kategorie, das
-ist also eine Suche beim Tippen. Gib eine Kategorie und einen Suchbegriff an,
-um passende Marken-IDs zu bekommen, und reiche eine ID an
+Marken hängen von der Kategorie ab, und es gibt über 1000 pro Kategorie,
+deshalb funktioniert das wie eine Autovervollständigung. Gib eine Kategorie und
+einen Suchbegriff an, um passende Marken-IDs zu bekommen, und reiche eine ID an
 `search_willhaben(brand=...)` weiter.
 
 Hinweis: Zustand, Größen, Farbe, Muster und Marke hängen von der Kategorie ab.

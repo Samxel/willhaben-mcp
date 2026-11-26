@@ -1,6 +1,6 @@
 <h1 align="center">willhaben-mcp</h1>
 
-<p align="center"><sub>From the same series: <a href="https://github.com/Samxel/geizhals-mcp">geizhals-mcp</a> · <a href="https://github.com/Samxel/kleinanzeigen-mcp">kleinanzeigen-mcp</a></sub></p>
+<p align="center"><sub>From the same series: <a href="https://github.com/Samxel/geizhals-mcp">geizhals-mcp</a> · <a href="https://github.com/Samxel/kleinanzeigen-mcp">kleinanzeigen-mcp</a> · <a href="https://github.com/Samxel/rabatt-mcp">rabatt-mcp</a></sub></p>
 
 An MCP server that lets an AI search [willhaben.at](https://www.willhaben.at)
 and pull the full details of ads. It covers the marketplace (Marktplatz), the

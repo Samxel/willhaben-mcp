@@ -1,6 +1,6 @@
 <h1 align="center">willhaben-mcp</h1>
 
-<p align="center"><sub>Aus derselben Reihe: <a href="https://github.com/Samxel/geizhals-mcp">geizhals-mcp</a> · <a href="https://github.com/Samxel/kleinanzeigen-mcp">kleinanzeigen-mcp</a></sub></p>
+<p align="center"><sub>Aus derselben Reihe: <a href="https://github.com/Samxel/geizhals-mcp">geizhals-mcp</a> · <a href="https://github.com/Samxel/kleinanzeigen-mcp">kleinanzeigen-mcp</a> · <a href="https://github.com/Samxel/rabatt-mcp">rabatt-mcp</a></sub></p>
 
 Ein MCP-Server, mit dem eine KI [willhaben.at](https://www.willhaben.at)
 durchsuchen und die vollständigen Details von Anzeigen abrufen kann. Er deckt

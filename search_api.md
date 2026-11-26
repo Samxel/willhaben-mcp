@@ -71,6 +71,13 @@ GET https://ad-search.willhaben.at/restapi/v2/search/atz/seo/kaufen-und-verkaufe
 | wien | 900 |
 | andere_laender | 22000 |
 
+A district (Bezirk) takes the place of its state in `areaId`: Wien 1., Innere
+Stadt is `117223`, Wien 7., Neubau `117229`, Graz `601`, Innsbruck `701`. The
+ids are the same for the marketplace, cars and real estate. A search scoped to a
+state answers with a navigator `id: "district"` (label "Region") listing that
+state's districts and their `areaId`; `scripts/build_districts.py` collects
+them into `willhaben/data/regions/districts.json`.
+
 List params (`areaId`, `ISPRIVATE`, `treeAttributes`) become repeated query keys,
 e.g. `?areaId=5&areaId=6`.
 
@@ -182,7 +189,7 @@ Headers are the same as the marketplace search. `isNavigation=true` returns the
 
 ## Filter params
 
-Enumerated filters (id lists ship in `data/auto-motor/filters.json`):
+Enumerated filters (id lists ship in `willhaben/data/auto-motor/filters.json`):
 
 | Param | Filter | Notes |
 |---|---|---|
@@ -226,7 +233,7 @@ GET https://ad-search.willhaben.at/restapi/v2/search/atz/2/<propertyTypeId>     
 ```
 
 Each property type exposes a slightly different filter set. Types and options
-ship in `data/immobilien/filters.json`.
+ship in `willhaben/data/immobilien/filters.json`.
 
 ## Property types
 

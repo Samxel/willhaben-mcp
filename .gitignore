@@ -5,4 +5,3 @@ __pycache__/
 clones_raw.json
 .pytest_cache/
 dist/
-*.mcpb

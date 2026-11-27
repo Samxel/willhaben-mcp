@@ -160,10 +160,9 @@ ein österreichisches Bundesland (`wien`, `niederoesterreich`, …), und
 `district` grenzt auf Bezirke ein, per Name (`"Graz"`, `"Innsbruck-Land"`,
 `"Neubau"`) oder Wiener Postleitzahl (`"1070"`); dazu `sort_by`, `rows`
 (höchstens 50), `offset` und `next_offset` / `has_more` zum Weiterblättern.
-Ergebnisse kommen als kompaktes JSON, Felder ohne Wert fallen weg. Suchtreffer
-haben keinen eigenen Link: Die Anzeigenseite ist
-`https://www.willhaben.at/iad/object?adId={id}`. Das steht einmal in den
-Server-Anweisungen, statt in jedem Treffer wiederholt zu werden.
+Ergebnisse kommen als kompaktes JSON, Felder ohne Wert fallen weg. Jeder
+Treffer und jede Anzeige hat eine `url`; die Server-Anweisungen bitten die KI,
+jede genannte Anzeige zu verlinken.
 
 `exclude`, `require` und `hide_reserved` funktionieren in allen drei Suchen
 gleich. Sie laufen auf dem Server und blättern weiter, bis `rows` Treffer

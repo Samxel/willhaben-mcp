@@ -157,9 +157,8 @@ Austrian state (`wien`, `niederoesterreich`, ...), and `district` narrows it to
 districts (Bezirke) by name (`"Graz"`, `"Innsbruck-Land"`, `"Neubau"`) or
 Vienna postcode (`"1070"`); `sort_by`, `rows` (up to 50), `offset`, and
 `next_offset` / `has_more` to page on. Results come as compact JSON, and fields
-without a value are left out. Search hits carry no link of their own: an ad's
-page is `https://www.willhaben.at/iad/object?adId={id}`, which the server
-instructions tell the AI once instead of repeating it in every hit.
+without a value are left out. Every hit and ad carries its `url`; the server
+instructions ask the AI to link every ad it names.
 
 `exclude`, `require` and `hide_reserved` work the same in all three searches,
 applied here and paging on until `rows` matches are found or 250 ads have been

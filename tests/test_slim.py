@@ -14,7 +14,7 @@ async def test_search_hits_drop_duplicated_and_bulky_fields(wh, call):
     for field in ("reserved", "image_url", "state", "paylivery"):
         assert field not in first, field
     assert (first["status"], first["price_amount"]) == ("reserved", 300.0) and "price" not in first
-    assert "url" not in first
+    assert first["url"] == "https://www.willhaben.at/iad/object?adId=1"
     assert first["published"] == "2026-10-27T23:07"
     # no amount: the display string is all there is
     assert "price_amount" not in second

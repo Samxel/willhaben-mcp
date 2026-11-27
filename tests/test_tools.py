@@ -27,7 +27,7 @@ async def test_search_summarizes_hits(wh, call):
     result = await call("search_willhaben", keyword="iPhone 13")
     hit = result["results"][0]
     assert (hit["id"], hit["price_amount"], hit["seller"]) == ("1", 350.0, "privat")
-    assert "status" not in hit and "url" not in hit
+    assert "status" not in hit and hit["url"] == "https://www.willhaben.at/iad/object?adId=1"
     assert (result["rows_found"], result["has_more"]) == (4373, True)
     sent = wh.sent(SEARCH)[0].url.params
     assert (sent["keyword"], sent["rows"]) == ("iPhone 13", "4")

@@ -48,8 +48,8 @@ status is "active", "reserved" or "sold". willhaben always reports an ad as \
 active, so this is read from the seller's marker in the title. Search hits \
 carry it only when it is not "active".
 
-Fields without a value are left out of results. Search hits carry no link: an \
-ad's page is https://www.willhaben.at/iad/object?adId={id}.
+Fields without a value are left out of results. Every hit and ad has a url: \
+whenever you name an ad to the user, give its link.
 """
 
 # The tool list only changes with a new release, so clients on the 2026-07-28

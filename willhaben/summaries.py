@@ -68,7 +68,7 @@ def summarize_ad(ad: dict) -> dict:
         "postcode": attr.get("POSTCODE"),
         "published": (attr.get("PUBLISHED_String") or "")[:16] or None,
         "paylivery": attr.get("p2penabled") == "true" or None,
-        # no link per hit: the instructions say how one is built from the id
+        "url": ad_url(ad.get("id")),
     }
 
 
